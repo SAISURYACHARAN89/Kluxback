@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: kluxback
+    runtime: python
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -k eventlet -w 1 app:app"
