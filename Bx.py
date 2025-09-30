@@ -19,7 +19,9 @@ import pathlib
 sys.stdout.reconfigure(encoding='utf-8')
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# ✅ Allow all origins for WebSocket too
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 
