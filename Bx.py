@@ -73,6 +73,7 @@ class SimpleStorage:
         self.data.append(new_data)
         if len(self.data) > self.max_entries:
             self.data = self.data[-self.max_entries:]
+        print(f"💾 Saved data point. Total: {len(self.data)}")
     
     def get_latest(self):
         return self.data[-1] if self.data else {}
@@ -83,38 +84,11 @@ class SimpleStorage:
 # Initialize storage
 data_storage = SimpleStorage()
 
-# Socket.IO event handlers
-@socketio.on('connect')
-def handle_connect():
-    print(f"✅ Client connected: {request.sid}")
-    latest_data = get_latest_data()
-    if latest_data:
-        socketio.emit('data_update', latest_data, room=request.sid)
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f"🔌 Client disconnected: {request.sid}")
-
-# Debug endpoint
-@app.route("/api/socket-debug")
-def socket_debug():
-    try:
-        rooms = socketio.server.manager.rooms.get('/', {})
-        return jsonify({
-            "connected_clients": len(rooms),
-            "client_ids": list(rooms.keys()),
-            "server_time": datetime.now().isoformat(),
-            "status": "active"
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# -------------------------
-# CONFIG
-# -------------------------
+# Global variables
 PAIR_ADDRESS = None
 community_id = None
 fetch_interval = 3  # seconds
+is_fetching = False
 
 # Axiom API endpoints (will be updated with PAIR_ADDRESS)
 axiom_endpoints = {}
@@ -179,6 +153,32 @@ cached_sol_price = {
     "last_updated": 0
 }
 
+# Socket.IO event handlers
+@socketio.on('connect')
+def handle_connect():
+    print(f"✅ Client connected: {request.sid}")
+    latest_data = get_latest_data()
+    if latest_data:
+        socketio.emit('data_update', latest_data, room=request.sid)
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"🔌 Client disconnected: {request.sid}")
+
+# Debug endpoint
+@app.route("/api/socket-debug")
+def socket_debug():
+    try:
+        rooms = socketio.server.manager.rooms.get('/', {})
+        return jsonify({
+            "connected_clients": len(rooms),
+            "client_ids": list(rooms.keys()),
+            "server_time": datetime.now().isoformat(),
+            "status": "active"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # -------------------------
 # FETCH FUNCTIONS
 # -------------------------
@@ -205,6 +205,7 @@ def fetch_axiom_data():
     return data
 
 def update_sol_price():
+    print("🚀 Starting SOL price updater...")
     while True:
         try:
             print("🔍 Fetching SOL price...")
@@ -375,7 +376,7 @@ def fetch_all_data():
     
     if not PAIR_ADDRESS or not community_id:
         print("❌ Configuration not complete. Skipping fetch.")
-        return
+        return None
         
     try:
         print("📡 Fetching Axiom data...")
@@ -547,19 +548,30 @@ def fetch_all_data():
         return None
 
 def background_fetcher():
-    print("🚀 Starting background fetcher...")
-    time.sleep(5)  # Wait for initial configuration
+    print("🚀 Starting background fetcher thread...")
+    global is_fetching
+    
+    # Wait a bit for configuration
+    time.sleep(2)
     
     while True:
         try:
-            if PAIR_ADDRESS and community_id:  # Only fetch if configured
+            if PAIR_ADDRESS and community_id:
+                if not is_fetching:
+                    is_fetching = True
+                    print("🎯 Starting data fetching (configuration detected)")
+                
                 result = fetch_all_data()
                 if result:
                     print("✅ Background fetch successful")
                 else:
-                    print("❌ Background fetch failed")
+                    print("❌ Background fetch returned None")
             else:
-                print("⏳ Waiting for configuration...")
+                if is_fetching:
+                    is_fetching = False
+                    print("⏳ Waiting for configuration...")
+                else:
+                    print("⏳ No configuration yet...")
                 
         except Exception as e:
             print(f"❌ Error in background_fetcher: {e}")
@@ -953,7 +965,8 @@ def status():
         "socket_connected": True,
         "data_points": len(data_storage.get_all()),
         "pair_address": PAIR_ADDRESS,
-        "community_id": community_id
+        "community_id": community_id,
+        "is_fetching": is_fetching
     })
 
 # -------------------------
@@ -964,8 +977,10 @@ if __name__ == "__main__":
     print("💾 Using in-memory storage")
     
     # Start background threads
+    print("🔧 Starting background threads...")
     threading.Thread(target=update_sol_price, daemon=True).start()
     threading.Thread(target=background_fetcher, daemon=True).start()
+    print("✅ Background threads started")
 
     print("✅ Server starting on http://0.0.0.0:5050")
     
