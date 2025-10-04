@@ -1,5 +1,3 @@
-import eventlet
-eventlet.monkey_patch()
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -15,24 +13,66 @@ from io import BytesIO
 import brotli
 import pathlib
 
+
 # Ensure Windows console supports UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
 
+# app = Flask(__name__)
+# CORS(app)
+# socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+
+# Update at the top of your file
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+app.config['SECRET_KEY'] = 'abc123'  # Add this
+CORS(app)
 
-# ✅ Allow all origins for WebSocket too
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+# Fix Socket.IO configuration
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*",
+    async_mode="eventlet",
+    logger=True,  # Enable for debugging
+    engineio_logger=True,  # Enable for debugging
+    ping_timeout=60,
+    ping_interval=25
+)
 
+# Add these Socket.IO event handlers AFTER the socketio initialization
+@socketio.on('connect')
+def handle_connect():
+    print(f"✅ Client connected: {request.sid}")
+    # Send initial data when client connects
+    latest_data = get_latest_data()
+    if latest_data:
+        socketio.emit('data_update', latest_data, room=request.sid)
 
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"🔌 Client disconnected: {request.sid}")
+
+# Add debug endpoint
+@app.route("/api/socket-debug")
+def socket_debug():
+    """Debug endpoint to check socket status"""
+    try:
+        rooms = socketio.server.manager.rooms.get('/', {})
+        return jsonify({
+            "connected_clients": len(rooms),
+            "client_ids": list(rooms.keys()),
+            "server_time": datetime.now().isoformat(),
+            "status": "active"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # -------------------------
 # CONFIG
 # -------------------------
-PAIR_ADDRESS = "CtFWU65jGuHrLhQHPACrCZEerc31Y75M8tGvbBpzf9w4"
-community_id = "1972677938530394294"
+PAIR_ADDRESS = None
+community_id = None
+
 BASE_DIR = pathlib.Path(__file__).parent.resolve()
 DATA_DIR = BASE_DIR / "data"
-JSON_FILE = DATA_DIR / "pair_filtered.json" 
+JSON_FILE = DATA_DIR / f"{PAIR_ADDRESS}.json"
 CONFIG_FILE = DATA_DIR / "dashboard_config.json"
 fetch_interval = 3  # seconds
 
@@ -328,13 +368,14 @@ def fetch_all_data():
             for item in timeline:
                 author = item.get("author_screen")
                 followers = item.get("followers_count", 0)
-                if author:
+                if author and author not in unique_authors:
                     unique_authors.add(author)
                     author_followers.append({
                         "author": author,
                         "followers": followers,
                         "author_name": item.get("author_name", "")
                     })
+                        
             
             # Analyze wallet ages for bubble chart - FIXED LOGIC
             holders_info = []
@@ -351,10 +392,15 @@ def fetch_all_data():
                         holder_json = [holder_json]
 
                     if isinstance(holder_json, list):
+                        seen_wallets = set()
                         for h in holder_json:
                             if not h or not isinstance(h, dict):
                                 continue
                             wallet = h.get("walletAddress")
+                            if not wallet or wallet in seen_wallets:
+                                continue  # skip duplicates
+                            seen_wallets.add(wallet)
+
                             funded_at = None
                             wf = h.get("walletFunding")
                             if isinstance(wf, dict):
@@ -369,6 +415,7 @@ def fetch_all_data():
                                 "fundedAt": funded_at,
                                 "ageCategory": age_category
                             })
+
                         
                         # Get total holders count from token_info
                         token_info = axiom_data.get("token_info", {})
@@ -395,10 +442,11 @@ def fetch_all_data():
                 # Scale up the wallet age counts proportionally
                 scale_factor = total_holders_count / actual_wallets_count
                 wallet_age_counts = {
-                    "baby": max(1, int(wallet_age_counts["baby"] * scale_factor)),
-                    "adult": max(1, int(wallet_age_counts["adult"] * scale_factor)),
-                    "old": max(1, int(wallet_age_counts["old"] * scale_factor))
-                }
+    "baby": wallet_age_counts["baby"],
+    "adult": wallet_age_counts["adult"],
+    "old": wallet_age_counts["old"]
+}
+
                 print(f"⚖️ Scaled wallet counts: {wallet_age_counts} (scale factor: {scale_factor:.2f})")
 
             # Rest of your existing data processing...
@@ -446,6 +494,9 @@ def fetch_all_data():
                     "tokenName": pair_info.get("tokenName"),
                     "tokenTicker": pair_info.get("tokenTicker"),
                     "dexPaid": pair_info.get("dexPaid"),
+                    "twitter": pair_info.get("twitter"),
+                    "tokenImage": pair_info.get("tokenImage"),
+                    "createdAt": pair_info.get("createdAt"),
                     "marketCapSol": (first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) if first_stats else None,
                     "marketCapUSD": ((first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) * sol_price_usd) if first_stats else None,
                     "fibLevel62": fib62,
@@ -499,6 +550,7 @@ def fetch_all_data():
             print(f"✅ Emitted and saved data at {result['timestamp']}")
             print(f"👥 Wallet Age Distribution: {wallet_age_counts} (Total: {total_holders_count})")
             print(f"📊 Author Followers: {[f['followers'] for f in author_followers]}")
+            # return result
 
             break
         except Exception as e:
@@ -553,21 +605,216 @@ def check_exit_condition(curr_mc):
 
 def background_fetcher():
     while True:
-        result = fetch_all_data()
-        if result and "axiom" in result:
-            curr_mc = result["axiom"].get("marketCapUSD", 0) or 0
-            check_exit_condition(curr_mc)
+        try:
+            result = fetch_all_data()
+            if result and "axiom" in result:
+                curr_mc = result["axiom"].get("marketCapUSD", 0) or 0
+                check_exit_condition(curr_mc)
 
-        view_stats = fetch_all_viewData()
-        print(f"📊 Timeline Stats → Views: {view_stats['total_views']} | Unique Authors: {view_stats['unique_authors']}")
+            view_stats = fetch_all_viewData()
+            print(f"📊 Timeline Stats → Views: {view_stats['total_views']} | Unique Authors: {view_stats['unique_authors']}")
+            
+        except Exception as e:
+            print(f"❌ Error in background_fetcher: {e}")
+        
         time.sleep(fetch_interval)
-
 
 # -------------------------
 # API ROUTES
 # -------------------------
-@app.route("/api/data")
-def latest_data():
+# Add these endpoints to your Flask app
+
+@app.route("/api/marketcap")
+def marketcap_data():
+    """Get market cap data for TradingView chart"""
+    try:
+        history_data = []
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()[-100:]
+                for line in lines:
+                    try:
+                        data = json.loads(line)
+                        timestamp = datetime.fromisoformat(data["timestamp"])
+                        history_data.append({
+                            "timestamp": timestamp.isoformat(),
+                            "time": timestamp.strftime("%H:%M"),
+                            "marketCapUSD": data.get("axiom", {}).get("marketCapUSD", 0),
+                            "marketCapSol": data.get("axiom", {}).get("marketCapSol", 0),
+                            "volumeUSD": data.get("axiom", {}).get("volumeUSD", 0),
+                            "priceSol": data.get("axiom", {}).get("marketCapSol", 0) / data.get("axiom", {}).get("supply", 1) if data.get("axiom", {}).get("supply") else 0
+                        })
+                    except Exception as e:
+                        continue
+
+        # Get latest data
+        latest_data = get_latest_data()
+        current_mc = latest_data.get("axiom", {}).get("marketCapUSD", 0)
+        
+        return jsonify({
+            "current": {
+                "marketCapUSD": current_mc,
+                "marketCapSol": latest_data.get("axiom", {}).get("marketCapSol", 0),
+                "volumeUSD": latest_data.get("axiom", {}).get("volumeUSD", 0),
+                "lastUpdated": latest_data.get("timestamp", "")
+            },
+            "history": history_data
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/tokeninfo")
+def token_info_data():
+    """Get token info data"""
+    try:
+        latest_data = get_latest_data()
+        axiom_data = latest_data.get("axiom", {})
+        
+        return jsonify({
+            "tokenAddress": axiom_data.get("tokenAddress"),
+            "tokenName": axiom_data.get("tokenName"),
+            "tokenTicker": axiom_data.get("tokenTicker"),
+            "twitter": axiom_data.get("twitter"),
+            "tokenImage": axiom_data.get("tokenImage"),
+            "createdAt": axiom_data.get("createdAt"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500      
+
+@app.route("/api/buys-sells")
+def buys_sells_data():
+    """Get buys vs sells data"""
+    try:
+        history_data = []
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()[-50:]
+                for line in lines:
+                    try:
+                        data = json.loads(line)
+                        timestamp = datetime.fromisoformat(data["timestamp"])
+                        history_data.append({
+                            "timestamp": timestamp.isoformat(),
+                            "time": timestamp.strftime("%H:%M"),
+                            "buyVolume": data.get("axiom", {}).get("buyVolumeUSD", 0),
+                            "sellVolume": data.get("axiom", {}).get("sellVolumeUSD", 0),
+                            "netVolume": data.get("axiom", {}).get("volumeUSD", 0),
+                            "buyCount": data.get("axiom", {}).get("buyCount", 0),
+                            "sellCount": data.get("axiom", {}).get("sellCount", 0)
+                        })
+                    except Exception as e:
+                        continue
+
+        latest_data = get_latest_data()
+        
+        return jsonify({
+            "current": {
+                "buyVolume": latest_data.get("axiom", {}).get("buyVolumeUSD", 0),
+                "sellVolume": latest_data.get("axiom", {}).get("sellVolumeUSD", 0),
+                "netVolume": latest_data.get("axiom", {}).get("volumeUSD", 0),
+                "buyCount": latest_data.get("axiom", {}).get("buyCount", 0),
+                "sellCount": latest_data.get("axiom", {}).get("sellCount", 0),
+                "lastUpdated": latest_data.get("timestamp", "")
+            },
+            "history": history_data
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/wallet-age")
+def wallet_age_data():
+    """Get wallet age distribution data"""
+    try:
+        latest_data = get_latest_data()
+        wallet_age = latest_data.get("axiom", {}).get("walletAgeCounts", {})
+        holders_data = latest_data.get("axiom", {}).get("holders", [])
+        
+        return jsonify({
+            "distribution": wallet_age,
+            "totalHolders": latest_data.get("axiom", {}).get("totalHolders", 0),
+            "holders": holders_data[:50],  # Limit for performance
+            "lastUpdated": latest_data.get("timestamp", "")
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/social")
+def social_data():
+    """Get social engagement data"""
+    try:
+        history_data = []
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()[-50:]
+                for line in lines:
+                    try:
+                        data = json.loads(line)
+                        timestamp = datetime.fromisoformat(data["timestamp"])
+                        timeline = data.get("x_data", {}).get("timeline", [])
+                        
+                        total_views = sum(int(t.get("views", 0)) for t in timeline if t.get("views"))
+                        total_likes = sum(t.get("favorite_count", 0) for t in timeline)
+                        total_retweets = sum(t.get("retweet_count", 0) for t in timeline)
+                        total_replies = sum(t.get("reply_count", 0) for t in timeline)
+                        
+                        history_data.append({
+                            "timestamp": timestamp.isoformat(),
+                            "time": timestamp.strftime("%H:%M"),
+                            "views": total_views,
+                            "likes": total_likes,
+                            "retweets": total_retweets,
+                            "replies": total_replies,
+                            "uniqueAuthors": data.get("unique_authors", 0)
+                        })
+                    except Exception as e:
+                        continue
+
+        latest_data = get_latest_data()
+        timeline = latest_data.get("x_data", {}).get("timeline", [])
+        
+        current_views = sum(int(t.get("views", 0)) for t in timeline if t.get("views"))
+        current_likes = sum(t.get("favorite_count", 0) for t in timeline)
+        current_retweets = sum(t.get("retweet_count", 0) for t in timeline)
+        current_replies = sum(t.get("reply_count", 0) for t in timeline)
+        
+        return jsonify({
+            "current": {
+                "views": current_views,
+                "likes": current_likes,
+                "retweets": current_retweets,
+                "replies": current_replies,
+                "uniqueAuthors": latest_data.get("unique_authors", 0),
+                "memberCount": latest_data.get("x_data", {}).get("fetchOne", {}).get("member_count", 0),
+                "lastUpdated": latest_data.get("timestamp", "")
+            },
+            "history": history_data
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/metrics")
+def metrics_data():
+    """Get all metrics for the horizontal bar"""
+    try:
+        latest_data = get_latest_data()
+        axiom_data = latest_data.get("axiom", {})
+        x_data = latest_data.get("x_data", {})
+        
+        return jsonify({
+            "marketCapUSD": axiom_data.get("marketCapUSD", 0),
+            "volumeUSD": axiom_data.get("volumeUSD", 0),
+            "holders": axiom_data.get("numHolders", 0),
+            "liquidityUSD": axiom_data.get("liquidityUSD", 0),
+            "uniqueAuthors": latest_data.get("unique_authors", 0),
+            "memberCount": x_data.get("fetchOne", {}).get("member_count", 0),
+            "solPrice": axiom_data.get("solPriceUSD", 0),
+            "lastUpdated": latest_data.get("timestamp", "")
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Helper function to get latest data
+def get_latest_data():
     if os.path.exists(JSON_FILE):
         with open(JSON_FILE, "rb") as f:
             try:
@@ -578,9 +825,95 @@ def latest_data():
                 f.seek(0)
             last_line = f.readline().decode().strip()
             if last_line:
-                return jsonify(json.loads(last_line))
-    return jsonify({"error": "No data available"})
+                return json.loads(last_line)
+    return {}
 
+@app.route("/api/holders")
+def holders_data():
+    """Get holder data specifically for the holders chart"""
+    try:
+        # Get latest data
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "rb") as f:
+                try:
+                    f.seek(-2, os.SEEK_END)
+                    while f.read(1) != b"\n":
+                        f.seek(-2, os.SEEK_CUR)
+                except OSError:
+                    f.seek(0)
+                last_line = f.readline().decode().strip()
+                latest_data = json.loads(last_line) if last_line else {}
+        else:
+            latest_data = {}
+
+        # Get historical data for chart
+        history_data = []
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()[-100:]  # Last 100 data points
+                for line in lines:
+                    try:
+                        data = json.loads(line)
+                        timestamp = datetime.fromisoformat(data["timestamp"])
+                        
+                        history_data.append({
+                            "timestamp": timestamp.isoformat(),
+                            "time": timestamp.strftime("%H:%M"),
+                            "value": data.get("axiom", {}).get("numHolders", 0),
+                            "marketCap": data.get("axiom", {}).get("marketCapUSD", 0),
+                            "uniqueAuthors": data.get("unique_authors", 0),
+                            "totalViews": sum(t.get("views", 0) for t in data.get("x_data", {}).get("timeline", []) if isinstance(t.get("views"), (int, float)))
+                        })
+                    except Exception as e:
+                        print(f"Error parsing history data: {e}")
+                        continue
+
+        # Current holder metrics
+        current_holders = latest_data.get("axiom", {}).get("numHolders", 0)
+        wallet_age_data = latest_data.get("axiom", {}).get("walletAgeCounts", {})
+        
+        # Calculate percentage change
+        percent_change = 0
+        holder_increase = 0
+        if len(history_data) >= 2:
+            previous_holders = history_data[-2]["value"]
+            if previous_holders > 0:
+                percent_change = ((current_holders - previous_holders) / previous_holders) * 100
+                holder_increase = current_holders - previous_holders
+
+        return jsonify({
+            "current": {
+                "holderCount": current_holders,
+                "percentChange": round(percent_change, 2),
+                "holderIncrease": holder_increase,
+                "lastUpdated": latest_data.get("timestamp", ""),
+                "walletAgeDistribution": wallet_age_data,
+                "totalHolders": latest_data.get("axiom", {}).get("totalHolders", 0)
+            },
+            "history": history_data,
+            "timeline": latest_data.get("x_data", {}).get("timeline", [])
+        })
+        
+    except Exception as e:
+        print(f"Error in holders endpoint: {e}")
+        return jsonify({"error": str(e)}), 500
+@app.route("/api/data")
+def latest_data():
+    try:
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "rb") as f:
+                try:
+                    f.seek(-2, os.SEEK_END)
+                    while f.read(1) != b"\n":
+                        f.seek(-2, os.SEEK_CUR)
+                except OSError:
+                    f.seek(0)
+                last_line = f.readline().decode().strip()
+                if last_line:
+                    return jsonify(json.loads(last_line))
+        return jsonify({"error": "No data available", "timestamp": datetime.now().isoformat()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 @app.route("/api/history")
 def history_data():
     if os.path.exists(JSON_FILE):
@@ -589,24 +922,6 @@ def history_data():
             last_50 = [json.loads(line) for line in lines[-50:]]
             return jsonify(last_50)
     return jsonify([])
-@app.route("/api/status")
-def status():
-    if not server_status["is_configured"]:
-        return jsonify({
-            "status": "waiting",
-            "message": "Waiting for configuration"
-        })
-    elif not server_status["is_running"]:
-        return jsonify({
-            "status": "stopped",
-            "error": "Backend not running"
-        }), 503
-    
-    return jsonify({
-        "status": "active",
-        "started_at": server_status["start_time"],
-        "uptime_seconds": (datetime.now() - datetime.fromisoformat(server_status["start_time"])).total_seconds()
-    })
 
 # -------------------------
 # CONFIGURATION
@@ -641,69 +956,230 @@ def save_config(config):
         return False
 
 # Add new route to handle configuration
+def extract_community_id_from_url(twitter_url):
+    """
+    Extract community ID from Twitter/X community URL
+    Examples:
+    - https://x.com/i/communities/1974132556791427330
+    - https://twitter.com/i/communities/1974132556791427330
+    """
+    try:
+        if not twitter_url:
+            return None
+            
+        print(f"🔗 Processing Twitter URL: {twitter_url}")
+        
+        # Handle different URL formats
+        if "communities/" in twitter_url:
+            # Split by "communities/" and take the part after it
+            parts = twitter_url.split("communities/")
+            if len(parts) > 1:
+                community_id = parts[1].split('/')[0].split('?')[0].strip()
+                
+                # Validate that it's a numeric ID (Twitter community IDs are numbers)
+                if community_id.isdigit():
+                    print(f"✅ Extracted community ID: {community_id}")
+                    return community_id
+                else:
+                    print(f"❌ Invalid community ID format: {community_id}")
+        
+        print(f"❌ Could not extract community ID from URL: {twitter_url}")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error extracting community ID from URL: {e}")
+        return None
+
+def update_x_urls_with_community_id(community_id):
+    """
+    Update X URLs with the given community ID
+    """
+    global x_urls
+    
+    x_urls = {
+        "timeline": (
+            "https://x.com/i/api/graphql/Nyt-88UX4-pPCImZNUl9RQ/CommunityTweetsTimeline"
+            f"?variables=%7B%22communityId%22%3A%22{community_id}%22%2C%22count%22%3A20%2C%22displayLocation%22%3A%22Community%22%2C%22rankingMode%22%3A%22Relevance%22%2C%22withCommunity%22%3Atrue%7D"
+            "&features=%7B%22rweb_video_screen_enabled%22%3Afalse%2C%22payments_enabled%22%3Afalse%2C%22rweb_xchat_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Atrue%2C%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22premium_content_api_read_enabled%22%3Afalse%2C%22communities_web_enable_tweet_community_results_fetch%22%3Atrue%2C%22c9s_tweet_anatomy_moderator_badge_enabled%22%3Atrue%2C%22responsive_web_grok_analyze_button_fetch_trends_enabled%22%3Afalse%2C%22responsive_web_grok_analyze_post_followups_enabled%22%3Atrue%2C%22responsive_web_jetfuel_frame%22%3Atrue%2C%22responsive_web_grok_share_attachment_enabled%22%3Atrue%2C%22articles_preview_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22view_counts_everywhere_api_enabled%22%3Atrue%2C%22longform_notetweets_consumption_enabled%22%3Atrue%2C%22responsive_web_twitter_article_tweet_consumption_enabled%22%3Atrue%2C%22tweet_awards_web_tipping_enabled%22%3Afalse%2C%22responsive_web_grok_show_grok_translated_post%22%3Atrue%2C%22responsive_web_grok_analysis_button_from_backend%22%3Atrue%2C%22creator_subscriptions_quote_tweet_preview_enabled%22%3Afalse%2C%22freedom_of_speech_not_reach_fetch_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Atrue%2C%22longform_notetweets_rich_text_read_enabled%22%3Atrue%2C%22longform_notetweets_inline_media_enabled%22%3Atrue%2C%22responsive_web_grok_image_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_imagine_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_community_note_auto_translation_is_enabled%22%3Afalse%2C%22responsive_web_enhance_cards_enabled%22%3Afalse%7D"
+        ),
+        "fetchOne": (
+            "https://x.com/i/api/graphql/pbuqwPzh0Ynrw8RQY3esYA/CommunitiesFetchOneQuery"
+            f"?variables=%7B%22communityId%22%3A%22{community_id}%22%2C%22withDmMuting%22%3Afalse%2C%22withGrokTranslatedBio%22%3Afalse%7D"
+            "&features=%7B%22payments_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Atrue%7D"
+        ),
+    }
+    
+    print(f"🔗 Updated X URLs with community ID: {community_id}")
 @app.route("/api/config", methods=["POST"])
 def update_config():
     try:
-        config = request.json
-        
-        # Required fields
-        if not config.get("pairAddress") or not config.get("communityId"):
-            return jsonify({"error": "Missing required fields"}), 400
+        config = request.get_json()
+        print("📩 Incoming config:", config, flush=True)
 
-        # Update config with required fields
+        if not config.get("pairAddress"):
+            return jsonify({"error": "Missing required field: pairAddress"}), 400
+
+        pair_address = config["pairAddress"]
+        user_community_id = config.get("communityId")  # Rename to avoid conflict
+        
+        # Update global variables FIRST
         global PAIR_ADDRESS, community_id, axiom_endpoints
-        PAIR_ADDRESS = config["pairAddress"]
-        community_id = config["communityId"]
+        PAIR_ADDRESS = pair_address
         
-        # Update dashboard config
-        dashboard_config["pair_address"] = PAIR_ADDRESS
-        dashboard_config["community_id"] = community_id
-
-        # Only update x_headers if provided, otherwise keep existing ones
-        if config.get("headers"):
-            global x_headers
-            x_headers = config["headers"]
-            dashboard_config["x_headers"] = x_headers
-        
-        # Update endpoints with new pair address
+        # Update Axiom endpoints with new pair address
         axiom_endpoints = {
             "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
             "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
             "pair_stats": f"https://api9.axiom.trade/pair-stats?pairAddress={PAIR_ADDRESS}",
             "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
         }
-        
-        if save_config(dashboard_config):
-            # Start data fetching only after configuration
-            if not server_status["is_running"]:
-                try:
-                    # Initialize price data
-                    cached_sol_price["price"] = get_sol_usd_price()
-                    cached_sol_price["last_updated"] = time.time()
-                    
-                    # Start background threads
-                    threading.Thread(target=update_sol_price, daemon=True).start()
-                    threading.Thread(target=background_fetcher, daemon=True).start()
-                    
-                    server_status["is_running"] = True
-                    server_status["is_configured"] = True
-                    server_status["start_time"] = datetime.now().isoformat()
-                except Exception as e:
-                    return jsonify({
-                        "status": "error",
-                        "message": f"Failed to start fetching: {str(e)}"
-                    }), 500
 
-            return jsonify({
-                "status": "success",
-                "message": "Configuration updated and fetching started"
-            }), 200
-        else:
-            return jsonify({"error": "Failed to save configuration"}), 500
+        # If community ID not provided, fetch Axiom data to extract from Twitter URL
+        twitter_url = None
+        if not user_community_id:
+            print("🔍 Community ID not provided, fetching Axiom data to extract from Twitter URL...")
             
+            # Fetch fresh Axiom data with the new pair address
+            axiom_data = fetch_axiom_data()
+            
+            # Extract Twitter URL from pair_info
+            pair_info = axiom_data.get("pair_info", {})
+            twitter_url = pair_info.get("twitter")
+            
+            if twitter_url and "communities/" in twitter_url:
+                # Extract community ID from URL
+                extracted_community_id = extract_community_id_from_url(twitter_url)
+                if extracted_community_id:
+                    user_community_id = extracted_community_id
+                    print(f"✅ Extracted community ID from Twitter URL: {user_community_id}")
+                else:
+                    print("❌ Could not extract community ID from Twitter URL")
+                    return jsonify({
+                        "error": "Could not extract community ID from Twitter URL",
+                        "twitterUrl": twitter_url,
+                        "suggestion": "Please provide communityId manually"
+                    }), 400
+            else:
+                print("❌ No valid Twitter community URL found in Axiom data")
+                return jsonify({
+                    "error": "No valid Twitter community URL found",
+                    "twitterUrl": twitter_url,
+                    "suggestion": "Please provide communityId manually"
+                }), 400
+
+        # Update global community_id variable
+        community_id = user_community_id
+        
+        # Update dashboard config
+        dashboard_config["pair_address"] = PAIR_ADDRESS
+        dashboard_config["community_id"] = community_id
+
+        # Update X endpoints with the found community ID
+        update_x_urls_with_community_id(community_id)
+
+        print(f"✅ Configuration updated successfully!")
+        print(f"   Pair Address: {PAIR_ADDRESS}")
+        print(f"   Community ID: {community_id}")
+        print(f"   Twitter URL: {twitter_url}")
+
+        # Start background fetching if not already running
+        if not server_status["is_running"]:
+            try:
+                # Initialize price data
+                cached_sol_price["price"] = get_sol_usd_price()
+                cached_sol_price["last_updated"] = time.time()
+                
+                # Start background threads
+                threading.Thread(target=update_sol_price, daemon=True).start()
+                threading.Thread(target=background_fetcher, daemon=True).start()
+                
+                server_status["is_running"] = True
+                server_status["is_configured"] = True
+                server_status["start_time"] = datetime.now().isoformat()
+            except Exception as e:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Failed to start fetching: {str(e)}"
+                }), 500
+
+        return jsonify({
+            "status": "success",
+            "message": "Configuration updated and fetching started",
+            "config": {
+                "pairAddress": PAIR_ADDRESS,
+                "communityId": community_id,
+                "twitterUrl": twitter_url,
+                "autoDiscovered": config.get("communityId") is None
+            }
+        }), 200
+
     except Exception as e:
-        print(f"Error updating config: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+        # @app.route("/api/config", methods=["POST"])
+# def update_config():
+#     try:
+#         config = request.json
+        
+#         # Required fields
+#         if not config.get("pairAddress") or not config.get("communityId"):
+#             return jsonify({"error": "Missing required fields"}), 400
+
+#         # Update config with required fields
+#         global PAIR_ADDRESS, community_id, axiom_endpoints
+#         PAIR_ADDRESS = config["pairAddress"]
+#         community_id = config["communityId"]
+        
+#         # Update dashboard config
+#         dashboard_config["pair_address"] = PAIR_ADDRESS
+#         dashboard_config["community_id"] = community_id
+
+#         # Only update x_headers if provided, otherwise keep existing ones
+#         if config.get("headers"):
+#             global x_headers
+#             x_headers = config["headers"]
+#             dashboard_config["x_headers"] = x_headers
+        
+#         # Update endpoints with new pair address
+#         axiom_endpoints = {
+#             "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
+#             "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
+#             "pair_stats": f"https://api9.axiom.trade/pair-stats?pairAddress={PAIR_ADDRESS}",
+#             "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
+#         }
+        
+#         if save_config(dashboard_config):
+#             # Start data fetching only after configuration
+#             if not server_status["is_running"]:
+#                 try:
+#                     # Initialize price data
+#                     cached_sol_price["price"] = get_sol_usd_price()
+#                     cached_sol_price["last_updated"] = time.time()
+                    
+#                     # Start background threads
+#                     threading.Thread(target=update_sol_price, daemon=True).start()
+#                     threading.Thread(target=background_fetcher, daemon=True).start()
+                    
+#                     server_status["is_running"] = True
+#                     server_status["is_configured"] = True
+#                     server_status["start_time"] = datetime.now().isoformat()
+#                 except Exception as e:
+#                     return jsonify({
+#                         "status": "error",
+#                         "message": f"Failed to start fetching: {str(e)}"
+#                     }), 500
+
+#             return jsonify({
+#                 "status": "success",
+#                 "message": "Configuration updated and fetching started"
+#             }), 200
+#         else:
+#             return jsonify({"error": "Failed to save configuration"}), 500
+            
+#     except Exception as e:
+#         print(f"Error updating config: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 # Modify status endpoint to include configuration state
 
@@ -736,40 +1212,43 @@ def cleanup_old_files():
             old_file.unlink()
 
 # Add startup status tracking
+# Fix server_status initialization
 server_status = {
-    "is_running": False,
-    "start_time": None,
-    "is_configured": False  # New flag to track if config is set
+    "is_running": True,  # Set to True since threads start immediately
+    "start_time": datetime.now().isoformat(),
+    "is_configured": True  # Set to True since you have hardcoded config
 }
+
+# Remove the config check in status endpoint
+@app.route("/api/status")
+def status():
+    return jsonify({
+        "status": "active",
+        "started_at": server_status["start_time"],
+        "uptime_seconds": (datetime.now() - datetime.fromisoformat(server_status["start_time"])).total_seconds(),
+        "socket_connected": True
+    })
 
 # Remove the /start-backend route as it's no longer needed
 # -------------------------
 # MAIN
 # -------------------------
 if __name__ == "__main__":
-    print("🚀 Starting Dashboard Server...")
-    print("⏳ Waiting for configuration...")
+    print("🚀 Starting Flask server with Socket.IO...")
+    print("📊 Starting background data fetcher...")
     
-    # Load saved config if exists but don't start fetching
-    if load_saved_config():
-        print("✅ Loaded saved configuration")
-        PAIR_ADDRESS = dashboard_config["pair_address"]
-        community_id = dashboard_config["community_id"]
-        
-        # Update endpoints
-        axiom_endpoints = {
-            "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
-            "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
-            "pair_stats": f"https://api9.axiom.trade/pair-stats?pairAddress={PAIR_ADDRESS}",
-            "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
-        }
+    # Start background threads
+    threading.Thread(target=update_sol_price, daemon=True).start()
+    threading.Thread(target=background_fetcher, daemon=True).start()
+
+    print("✅ Server starting on http://0.0.0.0:5050")
+    print("🔌 Socket.IO is enabled and waiting for connections...")
     
-    # Just start the server and wait for configuration
-    port = int(os.environ.get("PORT", 5050))
+    # Run Flask with Socket.IO
     socketio.run(
         app,
         host="0.0.0.0",
-        port=port,
+        port=5050,
         debug=True,
         use_reloader=False,
         allow_unsafe_werkzeug=True
