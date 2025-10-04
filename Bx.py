@@ -1,5 +1,6 @@
 import eventlet
 eventlet.monkey_patch()
+
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -15,26 +16,35 @@ from io import BytesIO
 import brotli
 import pathlib
 
-
 # Ensure Windows console supports UTF-8 output
 sys.stdout.reconfigure(encoding='utf-8')
 
-# app = Flask(__name__)
-# CORS(app)
-# socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
-
-# Update at the top of your file
+# ✅ Initialize Flask
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'abc123'  # Add this
-CORS(app)
+app.config['SECRET_KEY'] = 'abc123'
 
-# Fix Socket.IO configuration
+# ✅ Explicit CORS setup
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
+            "http://localhost:5173",
+            "http://localhost:3000"
+        ]
+    }
+}, supports_credentials=True)
+
+# ✅ Socket.IO setup with same CORS origins
 socketio = SocketIO(
-    app, 
-    cors_allowed_origins="*",
+    app,
+    cors_allowed_origins=[
+        "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000"
+    ],
     async_mode="eventlet",
-    logger=True,  # Enable for debugging
-    engineio_logger=True,  # Enable for debugging
+    logger=True,
+    engineio_logger=True,
     ping_timeout=60,
     ping_interval=25
 )
