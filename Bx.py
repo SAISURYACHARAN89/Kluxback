@@ -23,16 +23,13 @@ sys.stdout.reconfigure(encoding='utf-8')
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'abc123'
 
-# ✅ Explicit CORS setup
-CORS(app, resources={
-    r"/api/*": {
-        "origins": [
-            "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
-            "http://localhost:5173",
-            "http://localhost:3000"
-        ]
-    }
-}, supports_credentials=True)
+# ✅ FIXED CORS setup - Allow all origins for now
+CORS(app, origins=[
+    "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
+    "http://localhost:5173", 
+    "http://localhost:3000",
+    "https://dashboard-void-shell.vercel.app"
+], supports_credentials=True)
 
 # ✅ Socket.IO setup with same CORS origins
 socketio = SocketIO(
@@ -40,7 +37,8 @@ socketio = SocketIO(
     cors_allowed_origins=[
         "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
         "http://localhost:5173",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "https://dashboard-void-shell.vercel.app"
     ],
     async_mode="eventlet",
     logger=True,
@@ -48,6 +46,20 @@ socketio = SocketIO(
     ping_timeout=60,
     ping_interval=25
 )
+
+# Add CORS headers to all responses
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', 'https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
+
+# Handle preflight requests
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def options_response(path):
+    return jsonify({'status': 'ok'}), 200
 
 # =============================================
 # SIMPLE IN-MEMORY STORAGE FOR RENDER FREE TIER
