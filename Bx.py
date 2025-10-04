@@ -23,7 +23,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'abc123'
 
-# ✅ FIXED CORS setup - Allow all origins for now
+# ✅ CORS setup
 CORS(app, origins=[
     "https://dashboard-void-shell-i7s0d7g3z-saisuryacharan89s-projects.vercel.app",
     "http://localhost:5173", 
@@ -31,7 +31,7 @@ CORS(app, origins=[
     "https://dashboard-void-shell.vercel.app"
 ], supports_credentials=True)
 
-# ✅ Socket.IO setup with same CORS origins
+# ✅ Socket.IO setup
 socketio = SocketIO(
     app,
     cors_allowed_origins=[
@@ -62,16 +62,15 @@ def options_response(path):
     return jsonify({'status': 'ok'}), 200
 
 # =============================================
-# SIMPLE IN-MEMORY STORAGE FOR RENDER FREE TIER
+# SIMPLE IN-MEMORY STORAGE
 # =============================================
 class SimpleStorage:
     def __init__(self):
-        self.data = []  # Store all data points in memory
-        self.max_entries = 200  # Keep last 200 entries to prevent memory issues
+        self.data = []
+        self.max_entries = 200
     
     def save(self, new_data):
         self.data.append(new_data)
-        # Keep only last max_entries
         if len(self.data) > self.max_entries:
             self.data = self.data[-self.max_entries:]
     
@@ -80,18 +79,14 @@ class SimpleStorage:
     
     def get_all(self):
         return self.data
-    
-    def get_recent(self, count):
-        return self.data[-count:] if self.data else []
 
 # Initialize storage
 data_storage = SimpleStorage()
 
-# Add these Socket.IO event handlers AFTER the socketio initialization
+# Socket.IO event handlers
 @socketio.on('connect')
 def handle_connect():
     print(f"✅ Client connected: {request.sid}")
-    # Send initial data when client connects
     latest_data = get_latest_data()
     if latest_data:
         socketio.emit('data_update', latest_data, room=request.sid)
@@ -100,10 +95,9 @@ def handle_connect():
 def handle_disconnect():
     print(f"🔌 Client disconnected: {request.sid}")
 
-# Add debug endpoint
+# Debug endpoint
 @app.route("/api/socket-debug")
 def socket_debug():
-    """Debug endpoint to check socket status"""
     try:
         rooms = socketio.server.manager.rooms.get('/', {})
         return jsonify({
@@ -120,20 +114,12 @@ def socket_debug():
 # -------------------------
 PAIR_ADDRESS = None
 community_id = None
-
-# REMOVED FILE SYSTEM DEPENDENCIES
-PAIR_ADDRESS = "default_pair"
 fetch_interval = 3  # seconds
 
-# Axiom API endpoints
-axiom_endpoints = {
-    "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
-    "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
-    "pair_stats": f"https://api9.axiom.trade/pair-stats?pairAddress={PAIR_ADDRESS}",
-    "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
-}
+# Axiom API endpoints (will be updated with PAIR_ADDRESS)
+axiom_endpoints = {}
 
-# Replace Axiom API config
+# Axiom API config
 axiom_headers = {
     "accept": "application/json, text/plain, */*",
     "accept-encoding": "gzip, deflate, br, zstd",
@@ -181,39 +167,11 @@ x_headers = {
     "x-xp-forwarded-for": "1dff0f5c36061e940f483d608f30ff9548e825fa4494fbea542c194f5a4c33c2926652e15f5439719439b2b8aa7a2aff4c8b5bfa1e0bceb490ae5424c8cf7a3ed3f4efa23a1a5b84c8e39794c85907399b423d72351a550563a62a48ac96d501dc75e06cf2fac269615dc7488ab161c4cc0967e868fd6d492e833b762757d680de466f9e46ec09cd90c0d5e7edb01d42b55ec2c5c9c3ae2c1708435e24735ae02665d83e35111ac4d4daa68fbbafa937414c4913ee575939a4dea4798d9d570c71800ec4d0b60e32ed8eeb4ff717395476c8f22d224f0284c86115a981a6fa061ba561dc9741fc3dd07152bf7458ccabe504b5dc56db63a38b9d58"
 }
 
-# Construct X endpoints (provided in your code earlier)
-x_urls = {
-    "timeline": (
-        "https://x.com/i/api/graphql/Nyt-88UX4-pPCImZNUl9RQ/CommunityTweetsTimeline"
-        f"?variables=%7B%22communityId%22%3A%22{community_id}%22%2C%22count%22%3A20%2C%22displayLocation%22%3A%22Community%22%2C%22rankingMode%22%3A%22Relevance%22%2C%22withCommunity%22%3Atrue%7D"
-        "&features=%7B%22rweb_video_screen_enabled%22%3Afalse%2C%22payments_enabled%22%3Afalse%2C%22rweb_xchat_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Atrue%2C%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22premium_content_api_read_enabled%22%3Afalse%2C%22communities_web_enable_tweet_community_results_fetch%22%3Atrue%2C%22c9s_tweet_anatomy_moderator_badge_enabled%22%3Atrue%2C%22responsive_web_grok_analyze_button_fetch_trends_enabled%22%3Afalse%2C%22responsive_web_grok_analyze_post_followups_enabled%22%3Atrue%2C%22responsive_web_jetfuel_frame%22%3Atrue%2C%22responsive_web_grok_share_attachment_enabled%22%3Atrue%2C%22articles_preview_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22view_counts_everywhere_api_enabled%22%3Atrue%2C%22longform_notetweets_consumption_enabled%22%3Atrue%2C%22responsive_web_twitter_article_tweet_consumption_enabled%22%3Atrue%2C%22tweet_awards_web_tipping_enabled%22%3Afalse%2C%22responsive_web_grok_show_grok_translated_post%22%3Atrue%2C%22responsive_web_grok_analysis_button_from_backend%22%3Atrue%2C%22creator_subscriptions_quote_tweet_preview_enabled%22%3Afalse%2C%22freedom_of_speech_not_reach_fetch_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Atrue%2C%22longform_notetweets_rich_text_read_enabled%22%3Atrue%2C%22longform_notetweets_inline_media_enabled%22%3Atrue%2C%22responsive_web_grok_image_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_imagine_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_community_note_auto_translation_is_enabled%22%3Afalse%2C%22responsive_web_enhance_cards_enabled%22%3Afalse%7D"
-    ),
-    "fetchOne": (
-        "https://x.com/i/api/graphql/pbuqwPzh0Ynrw8RQY3esYA/CommunitiesFetchOneQuery"
-        f"?variables=%7B%22communityId%22%3A%22{community_id}%22%2C%22withDmMuting%22%3Afalse%2C%22withGrokTranslatedBio%22%3Afalse%7D"
-        "&features=%7B%22payments_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Atrue%7D"
-    ),
-}
-
-# -------------------------
-# FETCH FUNCTIONS
-# -------------------------
-def fetch_axiom_data():
-    data = {}
-    for name, url in axiom_endpoints.items():
-        try:
-            resp = requests.get(url, headers=axiom_headers, cookies=axiom_cookies, timeout=15)
-            if resp.status_code == 200:
-                data[name] = resp.json()
-            else:
-                data[name] = {}
-        except Exception as e:
-            print(f"❌ Error fetching Axiom {name}: {e}")
-            data[name] = {}
-    return data
+# X endpoints (will be updated with community_id)
+x_urls = {}
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
-PRICE_UPDATE_INTERVAL = 600  # 10 minutes in seconds
+PRICE_UPDATE_INTERVAL = 600
 
 # Global cache for SOL price
 cached_sol_price = {
@@ -222,20 +180,42 @@ cached_sol_price = {
 }
 
 # -------------------------
-# MARKET CAP DROP CHECK
+# FETCH FUNCTIONS
 # -------------------------
-low_mc_start_time = None
-peak_mc_seen = 0
+def fetch_axiom_data():
+    if not PAIR_ADDRESS:
+        print("❌ No pair address configured")
+        return {}
+        
+    data = {}
+    for name, url in axiom_endpoints.items():
+        try:
+            print(f"🔍 Fetching Axiom {name} from {url}")
+            resp = requests.get(url, headers=axiom_headers, cookies=axiom_cookies, timeout=15)
+            print(f"✅ Axiom {name} status: {resp.status_code}")
+            
+            if resp.status_code == 200:
+                data[name] = resp.json()
+            else:
+                print(f"❌ Axiom {name} failed with status: {resp.status_code}")
+                data[name] = {}
+        except Exception as e:
+            print(f"❌ Error fetching Axiom {name}: {e}")
+            data[name] = {}
+    return data
 
 def update_sol_price():
     while True:
         try:
+            print("🔍 Fetching SOL price...")
             response = requests.get(COINGECKO_URL, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 cached_sol_price["price"] = data['solana']['usd']
                 cached_sol_price["last_updated"] = time.time()
                 print(f"✅ Updated SOL price: ${cached_sol_price['price']}")
+            else:
+                print(f"❌ SOL price fetch failed: {response.status_code}")
         except Exception as e:
             print(f"❌ Error updating SOL price: {e}")
         time.sleep(PRICE_UPDATE_INTERVAL)
@@ -250,38 +230,38 @@ def get_sol_usd_price():
     return 0
 
 def fetch_x_data():
+    if not community_id:
+        print("❌ No community ID configured")
+        return {"timeline": [], "fetchOne": {}}
+        
     data = {}
     for name, url in x_urls.items():
         try:
+            print(f"🔍 Fetching X {name}...")
             resp = requests.get(url, headers=x_headers, timeout=15)
-
-            # Log status + response preview
-            print(f"[{name}] Status {resp.status_code}, Length {len(resp.content)}")
+            print(f"✅ X {name} status: {resp.status_code}")
 
             if resp.status_code != 200:
-                print(f"❌ Non-200 response from {name}: {resp.text[:200]}")
+                print(f"❌ Non-200 response from {name}: {resp.status_code}")
                 data[name] = {"error": "non_200"}
                 continue
 
-            # --- handle compression manually ---
+            # Handle compression
             content = resp.content
             encoding = resp.headers.get("Content-Encoding", "")
 
-            if encoding == "br":  # Brotli
+            if encoding == "br":
                 try:
                     content = brotli.decompress(content)
                 except Exception:
-                    # maybe already JSON, so fallback to text
                     content = resp.text.encode("utf-8")
-
-            elif encoding == "gzip":  # Gzip
+            elif encoding == "gzip":
                 try:
                     content = gzip.GzipFile(fileobj=BytesIO(content)).read()
                 except Exception:
-                    # maybe already JSON
                     content = resp.text.encode("utf-8")
 
-            # --- normalize content ---
+            # Normalize content
             if isinstance(content, bytes):
                 try:
                     text = content.decode("utf-8")
@@ -290,16 +270,15 @@ def fetch_x_data():
             else:
                 text = str(content)
 
-            # --- try parse JSON ---
+            # Parse JSON
             try:
                 raw = json.loads(text)
             except Exception as e:
                 print(f"❌ Non-JSON response from {name}: {str(e)[:100]}")
-                print("Preview:", text[:200])
                 data[name] = {"error": "not_json"}
                 continue
 
-            # --- parse fetchOne ---
+            # Parse fetchOne
             if name == "fetchOne":
                 community = raw.get("data", {}).get("communityResults", {}).get("result", {})
                 admin = community.get("admin_results", {}).get("result", {})
@@ -319,7 +298,7 @@ def fetch_x_data():
                     },
                 }
 
-            # --- parse timeline ---
+            # Parse timeline
             elif name == "timeline":
                 tweets = []
                 instructions = (
@@ -364,7 +343,6 @@ def fetch_x_data():
                         })
                 data[name] = tweets
 
-            # --- fallback raw ---
             else:
                 data[name] = raw
 
@@ -374,10 +352,6 @@ def fetch_x_data():
 
     return data
 
-# -------------------------
-# BACKGROUND FETCHER
-# -------------------------
-# Add this function to calculate wallet age categories
 def categorize_wallet_age(funded_at):
     if not funded_at:
         return "unknown"
@@ -387,267 +361,216 @@ def categorize_wallet_age(funded_at):
         current_date = datetime.now(funded_date.tzinfo)
         age_days = (current_date - funded_date).days
         
-        if age_days <= 30:  # 1 month or less
+        if age_days <= 30:
             return "baby"
-        elif age_days <= 180:  # 1-6 months
+        elif age_days <= 180:
             return "adult"
-        else:  # More than 6 months
+        else:
             return "old"
     except:
         return "unknown"
 
-# Modify the fetch_all_data function to include wallet age analysis
 def fetch_all_data():
-    while True:  # Retry loop
+    print("🔄 Starting data fetch cycle...")
+    
+    if not PAIR_ADDRESS or not community_id:
+        print("❌ Configuration not complete. Skipping fetch.")
+        return
+        
+    try:
+        print("📡 Fetching Axiom data...")
+        axiom_data = fetch_axiom_data()
+        print("📡 Fetching X data...")
+        x_data = fetch_x_data()
+        
+        # Process timeline data
+        timeline = x_data.get("timeline", [])
+        unique_authors = set()
+        author_followers = []
+        
+        for item in timeline:
+            author = item.get("author_screen")
+            followers = item.get("followers_count", 0)
+            if author and author not in unique_authors:
+                unique_authors.add(author)
+                author_followers.append({
+                    "author": author,
+                    "followers": followers,
+                    "author_name": item.get("author_name", "")
+                })
+        
+        # Process wallet data
+        holders_info = []
+        wallet_age_counts = {"baby": 0, "adult": 0, "old": 0}
+        total_holders_count = 0
+        
         try:
-            axiom_data = fetch_axiom_data()
-            x_data = fetch_x_data()
+            holder_url = f"https://api6.axiom.trade/holder-data-v3?pairAddress={PAIR_ADDRESS}&onlyTrackedWallets=false"
+            print(f"🔍 Fetching holder data from {holder_url}")
+            holder_resp = requests.get(holder_url, headers=axiom_headers, cookies=axiom_cookies, timeout=15)
             
-            # Count unique authors and collect followers data
-            timeline = x_data.get("timeline", [])
-            unique_authors = set()
-            author_followers = []
-            
-            for item in timeline:
-                author = item.get("author_screen")
-                followers = item.get("followers_count", 0)
-                if author and author not in unique_authors:
-                    unique_authors.add(author)
-                    author_followers.append({
-                        "author": author,
-                        "followers": followers,
-                        "author_name": item.get("author_name", "")
-                    })
+            if holder_resp.status_code == 200:
+                holder_json = holder_resp.json()
+                print(f"✅ Holder data received: {len(holder_json) if isinstance(holder_json, list) else 1} entries")
+
+                if isinstance(holder_json, dict):
+                    holder_json = [holder_json]
+
+                if isinstance(holder_json, list):
+                    seen_wallets = set()
+                    for h in holder_json:
+                        if not h or not isinstance(h, dict):
+                            continue
+                        wallet = h.get("walletAddress")
+                        if not wallet or wallet in seen_wallets:
+                            continue
+                        seen_wallets.add(wallet)
+
+                        funded_at = None
+                        wf = h.get("walletFunding")
+                        if isinstance(wf, dict):
+                            funded_at = wf.get("fundedAt")
                         
-            
-            # Analyze wallet ages for bubble chart - FIXED LOGIC
-            holders_info = []
-            wallet_age_counts = {"baby": 0, "adult": 0, "old": 0}
-            total_holders_count = 0
-            
-            try:
-                holder_url = f"https://api6.axiom.trade/holder-data-v3?pairAddress={PAIR_ADDRESS}&onlyTrackedWallets=false"
-                holder_resp = requests.get(holder_url, headers=axiom_headers, cookies=axiom_cookies, timeout=15)
-                if holder_resp.status_code == 200:
-                    holder_json = holder_resp.json()
-
-                    if isinstance(holder_json, dict):
-                        holder_json = [holder_json]
-
-                    if isinstance(holder_json, list):
-                        seen_wallets = set()
-                        for h in holder_json:
-                            if not h or not isinstance(h, dict):
-                                continue
-                            wallet = h.get("walletAddress")
-                            if not wallet or wallet in seen_wallets:
-                                continue  # skip duplicates
-                            seen_wallets.add(wallet)
-
-                            funded_at = None
-                            wf = h.get("walletFunding")
-                            if isinstance(wf, dict):
-                                funded_at = wf.get("fundedAt")
-                            
-                            # Categorize wallet age
-                            age_category = categorize_wallet_age(funded_at)
-                            wallet_age_counts[age_category] += 1
-                            
-                            holders_info.append({
-                                "walletAddress": wallet,
-                                "fundedAt": funded_at,
-                                "ageCategory": age_category
-                            })
-
+                        age_category = categorize_wallet_age(funded_at)
+                        wallet_age_counts[age_category] += 1
                         
-                        # Get total holders count from token_info
-                        token_info = axiom_data.get("token_info", {})
-                        total_holders_count = token_info.get("numHolders", len(holder_json))
-                        
-                        print(f"📊 Wallet stats: Found {len(holder_json)} wallets with age data, Total holders: {total_holders_count}")
-                        
-            except Exception as e:
-                print(f"❌ Error fetching holders fundedAt: {e}")
-                # If we can't get holder data, use fallback distribution based on typical patterns
-                token_info = axiom_data.get("token_info", {})
-                total_holders_count = token_info.get("numHolders", 0)
-                if total_holders_count > 0:
-                    # Estimate distribution (adjust these ratios based on your typical data)
-                    wallet_age_counts = {
-                        "baby": max(1, int(total_holders_count * 0.4)),  # 40% new wallets
-                        "adult": max(1, int(total_holders_count * 0.3)),  # 30% medium age
-                        "old": max(1, int(total_holders_count * 0.3))     # 30% old wallets
-                    }
+                        holders_info.append({
+                            "walletAddress": wallet,
+                            "fundedAt": funded_at,
+                            "ageCategory": age_category
+                        })
 
-            # If we have very few wallets but many total holders, scale up the counts
-            actual_wallets_count = len(holders_info)
-            if total_holders_count > actual_wallets_count > 0:
-                # Scale up the wallet age counts proportionally
-                scale_factor = total_holders_count / actual_wallets_count
+                    token_info = axiom_data.get("token_info", {})
+                    total_holders_count = token_info.get("numHolders", len(holder_json))
+                    print(f"📊 Wallet stats: {len(holder_json)} wallets, {total_holders_count} total holders")
+            else:
+                print(f"❌ Holder data fetch failed: {holder_resp.status_code}")
+                
+        except Exception as e:
+            print(f"❌ Error fetching holders: {e}")
+            token_info = axiom_data.get("token_info", {})
+            total_holders_count = token_info.get("numHolders", 0)
+            if total_holders_count > 0:
                 wallet_age_counts = {
-                    "baby": wallet_age_counts["baby"],
-                    "adult": wallet_age_counts["adult"],
-                    "old": wallet_age_counts["old"]
+                    "baby": max(1, int(total_holders_count * 0.4)),
+                    "adult": max(1, int(total_holders_count * 0.3)),
+                    "old": max(1, int(total_holders_count * 0.3))
                 }
 
-                print(f"⚖️ Scaled wallet counts: {wallet_age_counts} (scale factor: {scale_factor:.2f})")
+        # Process main data
+        pair_info = axiom_data.get("pair_info", {})
+        token_info = axiom_data.get("token_info", {})
+        token_holders = axiom_data.get("token_holders", {})
+        pair_stats = axiom_data.get("pair_stats", [])
+        first_stats = pair_stats[0] if pair_stats else {}
+        sol_price_usd = cached_sol_price["price"]
+        
+        # Calculate fib levels
+        fib62 = 0
+        fib50 = 0
+        min_mc = 5750
+        max_mc = min_mc
 
-            # Rest of your existing data processing...
-            pair_info = axiom_data.get("pair_info", {})
-            token_info = axiom_data.get("token_info", {})
-            token_holders = axiom_data.get("token_holders", {})
-            pair_stats = axiom_data.get("pair_stats", [])
-            first_stats = pair_stats[0] if pair_stats else {}
-            sol_price_usd = cached_sol_price["price"]
-            
-            # Calculate fib levels using in-memory data
-            fib62 = 0
-            fib50 = 0
-            min_mc = 5750
-            max_mc = min_mc
+        all_data = data_storage.get_all()
+        if all_data:
+            for entry in all_data:
+                mc = entry.get("axiom", {}).get("marketCapUSD", 0)
+                if mc > max_mc:
+                    max_mc = mc
 
-            # Calculate from stored data instead of file
-            all_data = data_storage.get_all()
-            if all_data:
-                max_mc = min_mc
-                for entry in all_data:
-                    mc = entry.get("axiom", {}).get("marketCapUSD", 0)
-                    if mc > max_mc:
-                        max_mc = mc
+            fib62 = min_mc + 0.62 * (max_mc - min_mc)
+            fib50 = min_mc + 0.50 * (max_mc - min_mc)
 
-                fib62 = min_mc + 0.62 * (max_mc - min_mc)
-                fib50 = min_mc + 0.50 * (max_mc - min_mc)
+        # Extract token metrics
+        top10_holders_percent = token_holders.get("top10HoldersPercent", 0) 
+        insiders_hold_percent = token_holders.get("insidersHoldPercent", 0) 
+        bundlers_hold_percent = token_holders.get("bundlersHoldPercent", 0) 
+        snipers_hold_percent = token_holders.get("snipersHoldPercent", 0) 
+        
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "axiom": {
+                "tokenAddress": pair_info.get("tokenAddress"),
+                "tokenName": pair_info.get("tokenName"),
+                "tokenTicker": pair_info.get("tokenTicker"),
+                "dexPaid": pair_info.get("dexPaid"),
+                "twitter": pair_info.get("twitter"),
+                "tokenImage": pair_info.get("tokenImage"),
+                "createdAt": pair_info.get("createdAt"),
+                "marketCapSol": (first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) if first_stats else None,
+                "marketCapUSD": ((first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) * sol_price_usd) if first_stats else None,
+                "fibLevel62": fib62,
+                "fibLevel50": fib50,
+                "volumeSol": first_stats.get("buyVolumeSol", 0) - first_stats.get("sellVolumeSol", 0),
+                "volumeUSD": ((first_stats.get("buyVolumeSol", 0) - first_stats.get("sellVolumeSol", 0)) * sol_price_usd),
+                "netCount": first_stats.get("buyCount", 0) - first_stats.get("sellCount", 0),
+                "buyVolumeSol": first_stats.get("buyVolumeSol", 0),
+                "buyVolumeUSD": first_stats.get("buyVolumeSol", 0) * sol_price_usd,
+                "sellVolumeSol": first_stats.get("sellVolumeSol", 0),
+                "sellVolumeUSD": first_stats.get("sellVolumeSol", 0) * sol_price_usd,
+                "buyCount": first_stats.get("buyCount", 0),
+                "sellCount": first_stats.get("sellCount", 0),
+                "liquiditySol": pair_info.get("initialLiquiditySol"),
+                "liquidityUSD": pair_info.get("initialLiquiditySol", 0) * sol_price_usd if pair_info.get("initialLiquiditySol") else 0,
+                "numHolders": token_info.get("numHolders"),
+                "supply": pair_info.get("supply"),
+                "solPriceUSD": sol_price_usd,
+                "priceLastUpdated": cached_sol_price["last_updated"],
+                "holders": holders_info,
+                "walletAgeCounts": wallet_age_counts,
+                "totalHolders": total_holders_count,
+                "top10HoldersPercent": top10_holders_percent,
+                "insidersHoldPercent": insiders_hold_percent,
+                "bundlersHoldPercent": bundlers_hold_percent,
+                "snipersHoldPercent": snipers_hold_percent
+            },
+            "x_data": x_data,
+            "unique_authors": len(unique_authors),
+            "author_followers": author_followers
+        }
 
-            # Extract token metrics
-            top10_holders_percent = token_holders.get("top10HoldersPercent", 0) 
-            insiders_hold_percent = token_holders.get("insidersHoldPercent", 0) 
-            bundlers_hold_percent = token_holders.get("bundlersHoldPercent", 0) 
-            snipers_hold_percent = token_holders.get("snipersHoldPercent", 0) 
-            
-            result = {
-                "timestamp": datetime.now().isoformat(),
-                "axiom": {
-                    "tokenAddress": pair_info.get("tokenAddress"),
-                    "tokenName": pair_info.get("tokenName"),
-                    "tokenTicker": pair_info.get("tokenTicker"),
-                    "dexPaid": pair_info.get("dexPaid"),
-                    "twitter": pair_info.get("twitter"),
-                    "tokenImage": pair_info.get("tokenImage"),
-                    "createdAt": pair_info.get("createdAt"),
-                    "marketCapSol": (first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) if first_stats else None,
-                    "marketCapUSD": ((first_stats.get("priceSol", 0) * pair_info.get("supply", 0)) * sol_price_usd) if first_stats else None,
-                    "fibLevel62": fib62,
-                    "fibLevel50": fib50,
-                    "volumeSol": first_stats.get("buyVolumeSol", 0) - first_stats.get("sellVolumeSol", 0),
-                    "volumeUSD": ((first_stats.get("buyVolumeSol", 0) - first_stats.get("sellVolumeSol", 0)) * sol_price_usd),
-                    "netCount": first_stats.get("buyCount", 0) - first_stats.get("sellCount", 0),
-                    "buyVolumeSol": first_stats.get("buyVolumeSol", 0),
-                    "buyVolumeUSD": first_stats.get("buyVolumeSol", 0) * sol_price_usd,
-                    "sellVolumeSol": first_stats.get("sellVolumeSol", 0),
-                    "sellVolumeUSD": first_stats.get("sellVolumeSol", 0) * sol_price_usd,
-                    "buyCount": first_stats.get("buyCount", 0),
-                    "sellCount": first_stats.get("sellCount", 0),
-                    "liquiditySol": pair_info.get("initialLiquiditySol"),
-                    "liquidityUSD": pair_info.get("initialLiquiditySol", 0) * sol_price_usd if pair_info.get("initialLiquiditySol") else 0,
-                    "numHolders": token_info.get("numHolders"),
-                    "supply": pair_info.get("supply"),
-                    "solPriceUSD": sol_price_usd,
-                    "priceLastUpdated": cached_sol_price["last_updated"],
-                    "holders": holders_info,
-                    "walletAgeCounts": wallet_age_counts,
-                    "totalHolders": total_holders_count,  # Add total for reference
-                    "top10HoldersPercent": top10_holders_percent,
-                    "insidersHoldPercent": insiders_hold_percent,
-                    "bundlersHoldPercent": bundlers_hold_percent,
-                    "snipersHoldPercent": snipers_hold_percent
-                },
-                "x_data": x_data,
-                "unique_authors": len(unique_authors),
-                "author_followers": author_followers
-            }
+        # Save to storage
+        data_storage.save(result)
+        print(f"✅ Data saved at {result['timestamp']}")
+        print(f"📊 Market Cap: ${result['axiom'].get('marketCapUSD', 0):,.2f}")
+        print(f"👥 Holders: {result['axiom'].get('numHolders', 0)}")
+        print(f"🐦 Unique Authors: {len(unique_authors)}")
 
-            # ✅ SAVE TO MEMORY STORAGE INSTEAD OF FILES
-            data_storage.save(result)
+        # Emit via Socket.IO
+        socketio.emit('data_update', result)
+        return result
 
-            socketio.emit('data_update', result)
-
-            print(f"✅ Emitted and saved data at {result['timestamp']}")
-            print(f"👥 Wallet Age Distribution: {wallet_age_counts} (Total: {total_holders_count})")
-            print(f"📊 Author Followers: {[f['followers'] for f in author_followers]}")
-            break
-        except Exception as e:
-            print(f"❌ Fetch failed, retrying in 5s: {e}")
-            time.sleep(5)
-
-def fetch_all_viewData():
-    x_data = fetch_x_data()
-    timeline = x_data.get("timeline", [])
-    total_views = 0
-    unique_authors = set()  # Changed from unique_tweets
-
-    for t in timeline:
-        # count views
-        views = t.get("views", 0)
-        try:
-            views_int = int(views)
-            total_views += views_int
-        except (ValueError, TypeError):
-            pass
-
-        # track unique authors
-        author = t.get("author_screen")
-        if author:
-            unique_authors.add(author)
-
-    return {
-        "total_views": total_views,
-        "unique_authors": len(unique_authors)  # Changed from unique_count
-    }
-
-def check_exit_condition(curr_mc):
-    global low_mc_start_time, peak_mc_seen
-
-    # Track peak market cap seen so far
-    if curr_mc > peak_mc_seen:
-        peak_mc_seen = curr_mc
-
-    # Conditions
-    cond1 = curr_mc < 6500
-    cond2 = (peak_mc_seen > 0 and curr_mc < 0.1 * peak_mc_seen)
-
-    if cond1 or cond2:
-        if low_mc_start_time is None:
-            low_mc_start_time = time.time()
-        else:
-            elapsed = time.time() - low_mc_start_time
-            if elapsed >= 180:  # 3 minutes
-                print(f"❌ MarketCapUSD drop detected for 3 minutes continuously. Exiting... "
-                      f"(curr_mc={curr_mc}, peak_mc={peak_mc_seen})")
-                os._exit(1)  # force exit immediately
-    else:
-        low_mc_start_time = None  # reset if safe
+    except Exception as e:
+        print(f"❌ Error in fetch_all_data: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 def background_fetcher():
+    print("🚀 Starting background fetcher...")
+    time.sleep(5)  # Wait for initial configuration
+    
     while True:
         try:
-            result = fetch_all_data()
-            if result and "axiom" in result:
-                curr_mc = result["axiom"].get("marketCapUSD", 0) or 0
-                check_exit_condition(curr_mc)
-
-            view_stats = fetch_all_viewData()
-            print(f"📊 Timeline Stats → Views: {view_stats['total_views']} | Unique Authors: {view_stats['unique_authors']}")
-            
+            if PAIR_ADDRESS and community_id:  # Only fetch if configured
+                result = fetch_all_data()
+                if result:
+                    print("✅ Background fetch successful")
+                else:
+                    print("❌ Background fetch failed")
+            else:
+                print("⏳ Waiting for configuration...")
+                
         except Exception as e:
             print(f"❌ Error in background_fetcher: {e}")
+            import traceback
+            traceback.print_exc()
         
         time.sleep(fetch_interval)
 
 # -------------------------
-# API ROUTES - UPDATED TO USE MEMORY STORAGE
+# API ROUTES
 # -------------------------
-
-# Helper function to get latest data
 def get_latest_data():
     return data_storage.get_latest()
 
@@ -667,12 +590,11 @@ def history_data():
 
 @app.route("/api/marketcap")
 def marketcap_data():
-    """Get market cap data for TradingView chart"""
     try:
         all_data = data_storage.get_all()
         history_data = []
         
-        for data in all_data[-100:]:  # Last 100 points
+        for data in all_data[-100:]:
             try:
                 timestamp = datetime.fromisoformat(data["timestamp"])
                 history_data.append({
@@ -681,12 +603,10 @@ def marketcap_data():
                     "marketCapUSD": data.get("axiom", {}).get("marketCapUSD", 0),
                     "marketCapSol": data.get("axiom", {}).get("marketCapSol", 0),
                     "volumeUSD": data.get("axiom", {}).get("volumeUSD", 0),
-                    "priceSol": data.get("axiom", {}).get("marketCapSol", 0) / data.get("axiom", {}).get("supply", 1) if data.get("axiom", {}).get("supply") else 0
                 })
-            except Exception as e:
+            except:
                 continue
 
-        # Get latest data
         latest_data = get_latest_data()
         current_mc = latest_data.get("axiom", {}).get("marketCapUSD", 0)
         
@@ -704,7 +624,6 @@ def marketcap_data():
 
 @app.route("/api/tokeninfo")
 def token_info_data():
-    """Get token info data"""
     try:
         latest_data = get_latest_data()
         axiom_data = latest_data.get("axiom", {})
@@ -718,16 +637,15 @@ def token_info_data():
             "createdAt": axiom_data.get("createdAt"),
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500      
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/buys-sells")
 def buys_sells_data():
-    """Get buys vs sells data"""
     try:
         all_data = data_storage.get_all()
         history_data = []
         
-        for data in all_data[-50:]:  # Last 50 points
+        for data in all_data[-50:]:
             try:
                 timestamp = datetime.fromisoformat(data["timestamp"])
                 history_data.append({
@@ -739,7 +657,7 @@ def buys_sells_data():
                     "buyCount": data.get("axiom", {}).get("buyCount", 0),
                     "sellCount": data.get("axiom", {}).get("sellCount", 0)
                 })
-            except Exception as e:
+            except:
                 continue
 
         latest_data = get_latest_data()
@@ -760,7 +678,6 @@ def buys_sells_data():
 
 @app.route("/api/wallet-age")
 def wallet_age_data():
-    """Get wallet age distribution data"""
     try:
         latest_data = get_latest_data()
         wallet_age = latest_data.get("axiom", {}).get("walletAgeCounts", {})
@@ -769,7 +686,7 @@ def wallet_age_data():
         return jsonify({
             "distribution": wallet_age,
             "totalHolders": latest_data.get("axiom", {}).get("totalHolders", 0),
-            "holders": holders_data[:50],  # Limit for performance
+            "holders": holders_data[:50],
             "lastUpdated": latest_data.get("timestamp", "")
         })
     except Exception as e:
@@ -777,7 +694,6 @@ def wallet_age_data():
 
 @app.route("/api/social")
 def social_data():
-    """Get social engagement data"""
     try:
         all_data = data_storage.get_all()
         history_data = []
@@ -801,7 +717,7 @@ def social_data():
                     "replies": total_replies,
                     "uniqueAuthors": data.get("unique_authors", 0)
                 })
-            except Exception as e:
+            except:
                 continue
 
         latest_data = get_latest_data()
@@ -829,7 +745,6 @@ def social_data():
 
 @app.route("/api/metrics")
 def metrics_data():
-    """Get all metrics for the horizontal bar"""
     try:
         latest_data = get_latest_data()
         axiom_data = latest_data.get("axiom", {})
@@ -850,36 +765,27 @@ def metrics_data():
 
 @app.route("/api/holders")
 def holders_data():
-    """Get holder data specifically for the holders chart"""
     try:
-        # Get latest data
         latest_data = get_latest_data()
-
-        # Get historical data for chart
         all_data = data_storage.get_all()
         history_data = []
         
-        for data in all_data[-100:]:  # Last 100 data points
+        for data in all_data[-100:]:
             try:
                 timestamp = datetime.fromisoformat(data["timestamp"])
-                
                 history_data.append({
                     "timestamp": timestamp.isoformat(),
                     "time": timestamp.strftime("%H:%M"),
                     "value": data.get("axiom", {}).get("numHolders", 0),
                     "marketCap": data.get("axiom", {}).get("marketCapUSD", 0),
                     "uniqueAuthors": data.get("unique_authors", 0),
-                    "totalViews": sum(t.get("views", 0) for t in data.get("x_data", {}).get("timeline", []) if isinstance(t.get("views"), (int, float)))
                 })
             except Exception as e:
-                print(f"Error parsing history data: {e}")
                 continue
 
-        # Current holder metrics
         current_holders = latest_data.get("axiom", {}).get("numHolders", 0)
         wallet_age_data = latest_data.get("axiom", {}).get("walletAgeCounts", {})
         
-        # Calculate percentage change
         percent_change = 0
         holder_increase = 0
         if len(history_data) >= 2:
@@ -898,49 +804,33 @@ def holders_data():
                 "totalHolders": latest_data.get("axiom", {}).get("totalHolders", 0)
             },
             "history": history_data,
-            "timeline": latest_data.get("x_data", {}).get("timeline", [])
         })
         
     except Exception as e:
-        print(f"Error in holders endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
 # -------------------------
 # CONFIGURATION
 # -------------------------
-# Add new config storage
 dashboard_config = {
     "pair_address": None,
     "community_id": None,
-    "x_headers": None
 }
 
 def extract_community_id_from_url(twitter_url):
-    """
-    Extract community ID from Twitter/X community URL
-    Examples:
-    - https://x.com/i/communities/1974132556791427330
-    - https://twitter.com/i/communities/1974132556791427330
-    """
     try:
         if not twitter_url:
             return None
             
         print(f"🔗 Processing Twitter URL: {twitter_url}")
         
-        # Handle different URL formats
         if "communities/" in twitter_url:
-            # Split by "communities/" and take the part after it
             parts = twitter_url.split("communities/")
             if len(parts) > 1:
                 community_id = parts[1].split('/')[0].split('?')[0].strip()
-                
-                # Validate that it's a numeric ID (Twitter community IDs are numbers)
                 if community_id.isdigit():
                     print(f"✅ Extracted community ID: {community_id}")
                     return community_id
-                else:
-                    print(f"❌ Invalid community ID format: {community_id}")
         
         print(f"❌ Could not extract community ID from URL: {twitter_url}")
         return None
@@ -950,9 +840,6 @@ def extract_community_id_from_url(twitter_url):
         return None
 
 def update_x_urls_with_community_id(community_id):
-    """
-    Update X URLs with the given community ID
-    """
     global x_urls
     
     x_urls = {
@@ -974,19 +861,19 @@ def update_x_urls_with_community_id(community_id):
 def update_config():
     try:
         config = request.get_json()
-        print("📩 Incoming config:", config, flush=True)
+        print("📩 Incoming config:", config)
 
         if not config.get("pairAddress"):
             return jsonify({"error": "Missing required field: pairAddress"}), 400
 
         pair_address = config["pairAddress"]
-        user_community_id = config.get("communityId")  # Rename to avoid conflict
+        user_community_id = config.get("communityId")
         
-        # Update global variables FIRST
+        # Update global variables
         global PAIR_ADDRESS, community_id, axiom_endpoints
         PAIR_ADDRESS = pair_address
         
-        # Update Axiom endpoints with new pair address
+        # Update Axiom endpoints
         axiom_endpoints = {
             "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
             "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
@@ -994,73 +881,44 @@ def update_config():
             "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
         }
 
-        # If community ID not provided, fetch Axiom data to extract from Twitter URL
+        # Extract community ID if not provided
         twitter_url = None
         if not user_community_id:
-            print("🔍 Community ID not provided, fetching Axiom data to extract from Twitter URL...")
-            
-            # Fetch fresh Axiom data with the new pair address
+            print("🔍 Fetching Axiom data to extract community ID...")
             axiom_data = fetch_axiom_data()
-            
-            # Extract Twitter URL from pair_info
             pair_info = axiom_data.get("pair_info", {})
             twitter_url = pair_info.get("twitter")
             
             if twitter_url and "communities/" in twitter_url:
-                # Extract community ID from URL
                 extracted_community_id = extract_community_id_from_url(twitter_url)
                 if extracted_community_id:
                     user_community_id = extracted_community_id
-                    print(f"✅ Extracted community ID from Twitter URL: {user_community_id}")
+                    print(f"✅ Extracted community ID: {user_community_id}")
                 else:
-                    print("❌ Could not extract community ID from Twitter URL")
                     return jsonify({
                         "error": "Could not extract community ID from Twitter URL",
                         "twitterUrl": twitter_url,
                         "suggestion": "Please provide communityId manually"
                     }), 400
             else:
-                print("❌ No valid Twitter community URL found in Axiom data")
                 return jsonify({
                     "error": "No valid Twitter community URL found",
                     "twitterUrl": twitter_url,
                     "suggestion": "Please provide communityId manually"
                 }), 400
 
-        # Update global community_id variable
         community_id = user_community_id
-        
-        # Update dashboard config
         dashboard_config["pair_address"] = PAIR_ADDRESS
         dashboard_config["community_id"] = community_id
 
-        # Update X endpoints with the found community ID
+        # Update X endpoints
         update_x_urls_with_community_id(community_id)
 
-        print(f"✅ Configuration updated successfully!")
-        print(f"   Pair Address: {PAIR_ADDRESS}")
-        print(f"   Community ID: {community_id}")
-        print(f"   Twitter URL: {twitter_url}")
+        print(f"✅ Configuration updated: {PAIR_ADDRESS}, {community_id}")
 
-        # Start background fetching if not already running
-        if not server_status["is_running"]:
-            try:
-                # Initialize price data
-                cached_sol_price["price"] = get_sol_usd_price()
-                cached_sol_price["last_updated"] = time.time()
-                
-                # Start background threads
-                threading.Thread(target=update_sol_price, daemon=True).start()
-                threading.Thread(target=background_fetcher, daemon=True).start()
-                
-                server_status["is_running"] = True
-                server_status["is_configured"] = True
-                server_status["start_time"] = datetime.now().isoformat()
-            except Exception as e:
-                return jsonify({
-                    "status": "error",
-                    "message": f"Failed to start fetching: {str(e)}"
-                }), 500
+        # Initialize price data
+        cached_sol_price["price"] = get_sol_usd_price()
+        cached_sol_price["last_updated"] = time.time()
 
         return jsonify({
             "status": "success",
@@ -1074,6 +932,7 @@ def update_config():
         }), 200
 
     except Exception as e:
+        print(f"❌ Error in config: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -1085,59 +944,16 @@ def get_config():
         "communityId": dashboard_config["community_id"]
     })
 
-# Update download endpoint to work with memory storage
-@app.route("/api/download")
-def download_data():
-    try:
-        all_data = data_storage.get_all()
-        if all_data:
-            # Create a temporary file-like object in memory
-            from io import StringIO
-            import csv
-            
-            output = StringIO()
-            writer = csv.writer(output)
-            
-            # Write header
-            if all_data:
-                first_row = all_data[0]
-                writer.writerow(['timestamp', 'marketCapUSD', 'volumeUSD', 'holders'])
-                
-                # Write data
-                for data in all_data:
-                    writer.writerow([
-                        data.get('timestamp', ''),
-                        data.get('axiom', {}).get('marketCapUSD', 0),
-                        data.get('axiom', {}).get('volumeUSD', 0),
-                        data.get('axiom', {}).get('numHolders', 0)
-                    ])
-            
-            output.seek(0)
-            return send_file(
-                BytesIO(output.getvalue().encode('utf-8')),
-                mimetype='text/csv',
-                as_attachment=True,
-                download_name='trading_data.csv'
-            )
-        return jsonify({"error": "No data available"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Add startup status tracking
-server_status = {
-    "is_running": True,  # Set to True since threads start immediately
-    "start_time": datetime.now().isoformat(),
-    "is_configured": True  # Set to True since you have hardcoded config
-}
-
 @app.route("/api/status")
 def status():
     return jsonify({
         "status": "active",
-        "started_at": server_status["start_time"],
-        "uptime_seconds": (datetime.now() - datetime.fromisoformat(server_status["start_time"])).total_seconds(),
+        "started_at": datetime.now().isoformat(),
+        "uptime_seconds": 0,
         "socket_connected": True,
-        "data_points": len(data_storage.get_all())
+        "data_points": len(data_storage.get_all()),
+        "pair_address": PAIR_ADDRESS,
+        "community_id": community_id
     })
 
 # -------------------------
@@ -1145,17 +961,14 @@ def status():
 # -------------------------
 if __name__ == "__main__":
     print("🚀 Starting Flask server with Socket.IO...")
-    print("📊 Starting background data fetcher...")
-    print("💾 Using in-memory storage (Render free tier compatible)")
+    print("💾 Using in-memory storage")
     
     # Start background threads
     threading.Thread(target=update_sol_price, daemon=True).start()
     threading.Thread(target=background_fetcher, daemon=True).start()
 
     print("✅ Server starting on http://0.0.0.0:5050")
-    print("🔌 Socket.IO is enabled and waiting for connections...")
     
-    # Run Flask with Socket.IO
     socketio.run(
         app,
         host="0.0.0.0",
