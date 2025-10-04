@@ -82,12 +82,14 @@ def socket_debug():
 PAIR_ADDRESS = None
 community_id = None
 
-BASE_DIR = pathlib.Path(__file__).parent.resolve()
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = pathlib.Path("/mnt/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+PAIR_ADDRESS = "default_pair"
 JSON_FILE = DATA_DIR / f"{PAIR_ADDRESS}.json"
 CONFIG_FILE = DATA_DIR / "dashboard_config.json"
-fetch_interval = 3  # seconds
 
+fetch_interval = 3  # seconds
 # Create data directory if it doesn't exist
 DATA_DIR.mkdir(exist_ok=True)
 
