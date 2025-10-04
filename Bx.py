@@ -49,6 +49,32 @@ socketio = SocketIO(
     ping_interval=25
 )
 
+# =============================================
+# SIMPLE IN-MEMORY STORAGE FOR RENDER FREE TIER
+# =============================================
+class SimpleStorage:
+    def __init__(self):
+        self.data = []  # Store all data points in memory
+        self.max_entries = 200  # Keep last 200 entries to prevent memory issues
+    
+    def save(self, new_data):
+        self.data.append(new_data)
+        # Keep only last max_entries
+        if len(self.data) > self.max_entries:
+            self.data = self.data[-self.max_entries:]
+    
+    def get_latest(self):
+        return self.data[-1] if self.data else {}
+    
+    def get_all(self):
+        return self.data
+    
+    def get_recent(self, count):
+        return self.data[-count:] if self.data else []
+
+# Initialize storage
+data_storage = SimpleStorage()
+
 # Add these Socket.IO event handlers AFTER the socketio initialization
 @socketio.on('connect')
 def handle_connect():
@@ -76,22 +102,16 @@ def socket_debug():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 # -------------------------
 # CONFIG
 # -------------------------
 PAIR_ADDRESS = None
 community_id = None
 
-DATA_DIR = pathlib.Path("/mnt/data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
+# REMOVED FILE SYSTEM DEPENDENCIES
 PAIR_ADDRESS = "default_pair"
-JSON_FILE = DATA_DIR / f"{PAIR_ADDRESS}.json"
-CONFIG_FILE = DATA_DIR / "dashboard_config.json"
-
 fetch_interval = 3  # seconds
-# Create data directory if it doesn't exist
-DATA_DIR.mkdir(exist_ok=True)
 
 # Axiom API endpoints
 axiom_endpoints = {
@@ -149,8 +169,6 @@ x_headers = {
     "x-xp-forwarded-for": "1dff0f5c36061e940f483d608f30ff9548e825fa4494fbea542c194f5a4c33c2926652e15f5439719439b2b8aa7a2aff4c8b5bfa1e0bceb490ae5424c8cf7a3ed3f4efa23a1a5b84c8e39794c85907399b423d72351a550563a62a48ac96d501dc75e06cf2fac269615dc7488ab161c4cc0967e868fd6d492e833b762757d680de466f9e46ec09cd90c0d5e7edb01d42b55ec2c5c9c3ae2c1708435e24735ae02665d83e35111ac4d4daa68fbbafa937414c4913ee575939a4dea4798d9d570c71800ec4d0b60e32ed8eeb4ff717395476c8f22d224f0284c86115a981a6fa061ba561dc9741fc3dd07152bf7458ccabe504b5dc56db63a38b9d58"
 }
 
-
-
 # Construct X endpoints (provided in your code earlier)
 x_urls = {
     "timeline": (
@@ -164,7 +182,6 @@ x_urls = {
         "&features=%7B%22payments_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Atrue%7D"
     ),
 }
-
 
 # -------------------------
 # FETCH FUNCTIONS
@@ -191,12 +208,12 @@ cached_sol_price = {
     "price": 0,
     "last_updated": 0
 }
+
 # -------------------------
 # MARKET CAP DROP CHECK
 # -------------------------
 low_mc_start_time = None
 peak_mc_seen = 0
-
 
 def update_sol_price():
     while True:
@@ -456,10 +473,10 @@ def fetch_all_data():
                 # Scale up the wallet age counts proportionally
                 scale_factor = total_holders_count / actual_wallets_count
                 wallet_age_counts = {
-    "baby": wallet_age_counts["baby"],
-    "adult": wallet_age_counts["adult"],
-    "old": wallet_age_counts["old"]
-}
+                    "baby": wallet_age_counts["baby"],
+                    "adult": wallet_age_counts["adult"],
+                    "old": wallet_age_counts["old"]
+                }
 
                 print(f"⚖️ Scaled wallet counts: {wallet_age_counts} (scale factor: {scale_factor:.2f})")
 
@@ -471,29 +488,23 @@ def fetch_all_data():
             first_stats = pair_stats[0] if pair_stats else {}
             sol_price_usd = cached_sol_price["price"]
             
-            # Calculate fib levels (your existing code)
+            # Calculate fib levels using in-memory data
             fib62 = 0
             fib50 = 0
             min_mc = 5750
             max_mc = min_mc
 
-            if os.path.exists(JSON_FILE):
-                try:
-                    with open(JSON_FILE, "r", encoding="utf-8") as f:
-                        max_mc = min_mc
-                        for line in f:
-                            try:
-                                entry = json.loads(line)
-                                mc = entry.get("axiom", {}).get("marketCapUSD", 0)
-                                if mc > max_mc:
-                                    max_mc = mc
-                            except:
-                                continue
+            # Calculate from stored data instead of file
+            all_data = data_storage.get_all()
+            if all_data:
+                max_mc = min_mc
+                for entry in all_data:
+                    mc = entry.get("axiom", {}).get("marketCapUSD", 0)
+                    if mc > max_mc:
+                        max_mc = mc
 
-                    fib62 = min_mc + 0.62 * (max_mc - min_mc)
-                    fib50 = min_mc + 0.50 * (max_mc - min_mc)
-                except Exception as e:
-                    print(f"❌ Error calculating fibLevel62: {e}")
+                fib62 = min_mc + 0.62 * (max_mc - min_mc)
+                fib50 = min_mc + 0.50 * (max_mc - min_mc)
 
             # Extract token metrics
             top10_holders_percent = token_holders.get("top10HoldersPercent", 0) 
@@ -543,33 +554,19 @@ def fetch_all_data():
                 "author_followers": author_followers
             }
 
-            # Save and emit
-            # Save with timestamp as filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            daily_file = DATA_DIR / f"data_{timestamp[:8]}.json"
-            
-            # Save to main file
-            with open(JSON_FILE, "a", encoding="utf-8") as f:
-                f.write(json.dumps(result, ensure_ascii=False) + "\n")
-            
-            # Also save to daily file
-            with open(daily_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(result, ensure_ascii=False) + "\n")
-
-            # Keep only last 7 days of daily files
-            cleanup_old_files()
+            # ✅ SAVE TO MEMORY STORAGE INSTEAD OF FILES
+            data_storage.save(result)
 
             socketio.emit('data_update', result)
 
             print(f"✅ Emitted and saved data at {result['timestamp']}")
             print(f"👥 Wallet Age Distribution: {wallet_age_counts} (Total: {total_holders_count})")
             print(f"📊 Author Followers: {[f['followers'] for f in author_followers]}")
-            # return result
-
             break
         except Exception as e:
             print(f"❌ Fetch failed, retrying in 5s: {e}")
             time.sleep(5)
+
 def fetch_all_viewData():
     x_data = fetch_x_data()
     timeline = x_data.get("timeline", [])
@@ -594,6 +591,7 @@ def fetch_all_viewData():
         "total_views": total_views,
         "unique_authors": len(unique_authors)  # Changed from unique_count
     }
+
 def check_exit_condition(curr_mc):
     global low_mc_start_time, peak_mc_seen
 
@@ -634,32 +632,47 @@ def background_fetcher():
         time.sleep(fetch_interval)
 
 # -------------------------
-# API ROUTES
+# API ROUTES - UPDATED TO USE MEMORY STORAGE
 # -------------------------
-# Add these endpoints to your Flask app
+
+# Helper function to get latest data
+def get_latest_data():
+    return data_storage.get_latest()
+
+@app.route("/api/data")
+def latest_data():
+    try:
+        latest = data_storage.get_latest()
+        if latest:
+            return jsonify(latest)
+        return jsonify({"error": "No data available", "timestamp": datetime.now().isoformat()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/history")
+def history_data():
+    return jsonify(data_storage.get_all())
 
 @app.route("/api/marketcap")
 def marketcap_data():
     """Get market cap data for TradingView chart"""
     try:
+        all_data = data_storage.get_all()
         history_data = []
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-100:]
-                for line in lines:
-                    try:
-                        data = json.loads(line)
-                        timestamp = datetime.fromisoformat(data["timestamp"])
-                        history_data.append({
-                            "timestamp": timestamp.isoformat(),
-                            "time": timestamp.strftime("%H:%M"),
-                            "marketCapUSD": data.get("axiom", {}).get("marketCapUSD", 0),
-                            "marketCapSol": data.get("axiom", {}).get("marketCapSol", 0),
-                            "volumeUSD": data.get("axiom", {}).get("volumeUSD", 0),
-                            "priceSol": data.get("axiom", {}).get("marketCapSol", 0) / data.get("axiom", {}).get("supply", 1) if data.get("axiom", {}).get("supply") else 0
-                        })
-                    except Exception as e:
-                        continue
+        
+        for data in all_data[-100:]:  # Last 100 points
+            try:
+                timestamp = datetime.fromisoformat(data["timestamp"])
+                history_data.append({
+                    "timestamp": timestamp.isoformat(),
+                    "time": timestamp.strftime("%H:%M"),
+                    "marketCapUSD": data.get("axiom", {}).get("marketCapUSD", 0),
+                    "marketCapSol": data.get("axiom", {}).get("marketCapSol", 0),
+                    "volumeUSD": data.get("axiom", {}).get("volumeUSD", 0),
+                    "priceSol": data.get("axiom", {}).get("marketCapSol", 0) / data.get("axiom", {}).get("supply", 1) if data.get("axiom", {}).get("supply") else 0
+                })
+            except Exception as e:
+                continue
 
         # Get latest data
         latest_data = get_latest_data()
@@ -699,25 +712,23 @@ def token_info_data():
 def buys_sells_data():
     """Get buys vs sells data"""
     try:
+        all_data = data_storage.get_all()
         history_data = []
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-50:]
-                for line in lines:
-                    try:
-                        data = json.loads(line)
-                        timestamp = datetime.fromisoformat(data["timestamp"])
-                        history_data.append({
-                            "timestamp": timestamp.isoformat(),
-                            "time": timestamp.strftime("%H:%M"),
-                            "buyVolume": data.get("axiom", {}).get("buyVolumeUSD", 0),
-                            "sellVolume": data.get("axiom", {}).get("sellVolumeUSD", 0),
-                            "netVolume": data.get("axiom", {}).get("volumeUSD", 0),
-                            "buyCount": data.get("axiom", {}).get("buyCount", 0),
-                            "sellCount": data.get("axiom", {}).get("sellCount", 0)
-                        })
-                    except Exception as e:
-                        continue
+        
+        for data in all_data[-50:]:  # Last 50 points
+            try:
+                timestamp = datetime.fromisoformat(data["timestamp"])
+                history_data.append({
+                    "timestamp": timestamp.isoformat(),
+                    "time": timestamp.strftime("%H:%M"),
+                    "buyVolume": data.get("axiom", {}).get("buyVolumeUSD", 0),
+                    "sellVolume": data.get("axiom", {}).get("sellVolumeUSD", 0),
+                    "netVolume": data.get("axiom", {}).get("volumeUSD", 0),
+                    "buyCount": data.get("axiom", {}).get("buyCount", 0),
+                    "sellCount": data.get("axiom", {}).get("sellCount", 0)
+                })
+            except Exception as e:
+                continue
 
         latest_data = get_latest_data()
         
@@ -756,32 +767,30 @@ def wallet_age_data():
 def social_data():
     """Get social engagement data"""
     try:
+        all_data = data_storage.get_all()
         history_data = []
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-50:]
-                for line in lines:
-                    try:
-                        data = json.loads(line)
-                        timestamp = datetime.fromisoformat(data["timestamp"])
-                        timeline = data.get("x_data", {}).get("timeline", [])
-                        
-                        total_views = sum(int(t.get("views", 0)) for t in timeline if t.get("views"))
-                        total_likes = sum(t.get("favorite_count", 0) for t in timeline)
-                        total_retweets = sum(t.get("retweet_count", 0) for t in timeline)
-                        total_replies = sum(t.get("reply_count", 0) for t in timeline)
-                        
-                        history_data.append({
-                            "timestamp": timestamp.isoformat(),
-                            "time": timestamp.strftime("%H:%M"),
-                            "views": total_views,
-                            "likes": total_likes,
-                            "retweets": total_retweets,
-                            "replies": total_replies,
-                            "uniqueAuthors": data.get("unique_authors", 0)
-                        })
-                    except Exception as e:
-                        continue
+        
+        for data in all_data[-50:]:
+            try:
+                timestamp = datetime.fromisoformat(data["timestamp"])
+                timeline = data.get("x_data", {}).get("timeline", [])
+                
+                total_views = sum(int(t.get("views", 0)) for t in timeline if t.get("views"))
+                total_likes = sum(t.get("favorite_count", 0) for t in timeline)
+                total_retweets = sum(t.get("retweet_count", 0) for t in timeline)
+                total_replies = sum(t.get("reply_count", 0) for t in timeline)
+                
+                history_data.append({
+                    "timestamp": timestamp.isoformat(),
+                    "time": timestamp.strftime("%H:%M"),
+                    "views": total_views,
+                    "likes": total_likes,
+                    "retweets": total_retweets,
+                    "replies": total_replies,
+                    "uniqueAuthors": data.get("unique_authors", 0)
+                })
+            except Exception as e:
+                continue
 
         latest_data = get_latest_data()
         timeline = latest_data.get("x_data", {}).get("timeline", [])
@@ -827,60 +836,32 @@ def metrics_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Helper function to get latest data
-def get_latest_data():
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, "rb") as f:
-            try:
-                f.seek(-2, os.SEEK_END)
-                while f.read(1) != b"\n":
-                    f.seek(-2, os.SEEK_CUR)
-            except OSError:
-                f.seek(0)
-            last_line = f.readline().decode().strip()
-            if last_line:
-                return json.loads(last_line)
-    return {}
-
 @app.route("/api/holders")
 def holders_data():
     """Get holder data specifically for the holders chart"""
     try:
         # Get latest data
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "rb") as f:
-                try:
-                    f.seek(-2, os.SEEK_END)
-                    while f.read(1) != b"\n":
-                        f.seek(-2, os.SEEK_CUR)
-                except OSError:
-                    f.seek(0)
-                last_line = f.readline().decode().strip()
-                latest_data = json.loads(last_line) if last_line else {}
-        else:
-            latest_data = {}
+        latest_data = get_latest_data()
 
         # Get historical data for chart
+        all_data = data_storage.get_all()
         history_data = []
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()[-100:]  # Last 100 data points
-                for line in lines:
-                    try:
-                        data = json.loads(line)
-                        timestamp = datetime.fromisoformat(data["timestamp"])
-                        
-                        history_data.append({
-                            "timestamp": timestamp.isoformat(),
-                            "time": timestamp.strftime("%H:%M"),
-                            "value": data.get("axiom", {}).get("numHolders", 0),
-                            "marketCap": data.get("axiom", {}).get("marketCapUSD", 0),
-                            "uniqueAuthors": data.get("unique_authors", 0),
-                            "totalViews": sum(t.get("views", 0) for t in data.get("x_data", {}).get("timeline", []) if isinstance(t.get("views"), (int, float)))
-                        })
-                    except Exception as e:
-                        print(f"Error parsing history data: {e}")
-                        continue
+        
+        for data in all_data[-100:]:  # Last 100 data points
+            try:
+                timestamp = datetime.fromisoformat(data["timestamp"])
+                
+                history_data.append({
+                    "timestamp": timestamp.isoformat(),
+                    "time": timestamp.strftime("%H:%M"),
+                    "value": data.get("axiom", {}).get("numHolders", 0),
+                    "marketCap": data.get("axiom", {}).get("marketCapUSD", 0),
+                    "uniqueAuthors": data.get("unique_authors", 0),
+                    "totalViews": sum(t.get("views", 0) for t in data.get("x_data", {}).get("timeline", []) if isinstance(t.get("views"), (int, float)))
+                })
+            except Exception as e:
+                print(f"Error parsing history data: {e}")
+                continue
 
         # Current holder metrics
         current_holders = latest_data.get("axiom", {}).get("numHolders", 0)
@@ -911,31 +892,6 @@ def holders_data():
     except Exception as e:
         print(f"Error in holders endpoint: {e}")
         return jsonify({"error": str(e)}), 500
-@app.route("/api/data")
-def latest_data():
-    try:
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, "rb") as f:
-                try:
-                    f.seek(-2, os.SEEK_END)
-                    while f.read(1) != b"\n":
-                        f.seek(-2, os.SEEK_CUR)
-                except OSError:
-                    f.seek(0)
-                last_line = f.readline().decode().strip()
-                if last_line:
-                    return jsonify(json.loads(last_line))
-        return jsonify({"error": "No data available", "timestamp": datetime.now().isoformat()})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-@app.route("/api/history")
-def history_data():
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            last_50 = [json.loads(line) for line in lines[-50:]]
-            return jsonify(last_50)
-    return jsonify([])
 
 # -------------------------
 # CONFIGURATION
@@ -947,29 +903,6 @@ dashboard_config = {
     "x_headers": None
 }
 
-CONFIG_FILE = "dashboard_config.json"
-
-def load_saved_config():
-    try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, 'r') as f:
-                saved_config = json.load(f)
-                dashboard_config.update(saved_config)
-                return True
-    except Exception as e:
-        print(f"Error loading config: {e}")
-    return False
-
-def save_config(config):
-    try:
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-        return True
-    except Exception as e:
-        print(f"Error saving config: {e}")
-        return False
-
-# Add new route to handle configuration
 def extract_community_id_from_url(twitter_url):
     """
     Extract community ID from Twitter/X community URL
@@ -1024,6 +957,7 @@ def update_x_urls_with_community_id(community_id):
     }
     
     print(f"🔗 Updated X URLs with community ID: {community_id}")
+
 @app.route("/api/config", methods=["POST"])
 def update_config():
     try:
@@ -1131,73 +1065,7 @@ def update_config():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-        # @app.route("/api/config", methods=["POST"])
-# def update_config():
-#     try:
-#         config = request.json
-        
-#         # Required fields
-#         if not config.get("pairAddress") or not config.get("communityId"):
-#             return jsonify({"error": "Missing required fields"}), 400
 
-#         # Update config with required fields
-#         global PAIR_ADDRESS, community_id, axiom_endpoints
-#         PAIR_ADDRESS = config["pairAddress"]
-#         community_id = config["communityId"]
-        
-#         # Update dashboard config
-#         dashboard_config["pair_address"] = PAIR_ADDRESS
-#         dashboard_config["community_id"] = community_id
-
-#         # Only update x_headers if provided, otherwise keep existing ones
-#         if config.get("headers"):
-#             global x_headers
-#             x_headers = config["headers"]
-#             dashboard_config["x_headers"] = x_headers
-        
-#         # Update endpoints with new pair address
-#         axiom_endpoints = {
-#             "pair_info": f"https://api9.axiom.trade/pair-info?pairAddress={PAIR_ADDRESS}",
-#             "token_info": f"https://api9.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}",
-#             "pair_stats": f"https://api9.axiom.trade/pair-stats?pairAddress={PAIR_ADDRESS}",
-#             "token_holders": f"https://api10.axiom.trade/token-info?pairAddress={PAIR_ADDRESS}"
-#         }
-        
-#         if save_config(dashboard_config):
-#             # Start data fetching only after configuration
-#             if not server_status["is_running"]:
-#                 try:
-#                     # Initialize price data
-#                     cached_sol_price["price"] = get_sol_usd_price()
-#                     cached_sol_price["last_updated"] = time.time()
-                    
-#                     # Start background threads
-#                     threading.Thread(target=update_sol_price, daemon=True).start()
-#                     threading.Thread(target=background_fetcher, daemon=True).start()
-                    
-#                     server_status["is_running"] = True
-#                     server_status["is_configured"] = True
-#                     server_status["start_time"] = datetime.now().isoformat()
-#                 except Exception as e:
-#                     return jsonify({
-#                         "status": "error",
-#                         "message": f"Failed to start fetching: {str(e)}"
-#                     }), 500
-
-#             return jsonify({
-#                 "status": "success",
-#                 "message": "Configuration updated and fetching started"
-#             }), 200
-#         else:
-#             return jsonify({"error": "Failed to save configuration"}), 500
-            
-#     except Exception as e:
-#         print(f"Error updating config: {e}")
-#         return jsonify({"error": str(e)}), 500
-
-# Modify status endpoint to include configuration state
-
-# Add config endpoint to get current config
 @app.route("/api/config", methods=["GET"])
 def get_config():
     return jsonify({
@@ -1205,51 +1073,68 @@ def get_config():
         "communityId": dashboard_config["community_id"]
     })
 
-# Add download endpoint
+# Update download endpoint to work with memory storage
 @app.route("/api/download")
 def download_data():
-    if os.path.exists(JSON_FILE):
-        return send_file(
-            JSON_FILE,
-            mimetype='application/json',
-            as_attachment=True,
-            download_name='trading_data.json'
-        )
-    return jsonify({"error": "No data available"}), 404
-
-# Add cleanup function
-def cleanup_old_files():
-    # Keep only last 7 days of data files
-    daily_files = sorted(DATA_DIR.glob("data_*.json"))
-    if len(daily_files) > 7:
-        for old_file in daily_files[:-7]:
-            old_file.unlink()
+    try:
+        all_data = data_storage.get_all()
+        if all_data:
+            # Create a temporary file-like object in memory
+            from io import StringIO
+            import csv
+            
+            output = StringIO()
+            writer = csv.writer(output)
+            
+            # Write header
+            if all_data:
+                first_row = all_data[0]
+                writer.writerow(['timestamp', 'marketCapUSD', 'volumeUSD', 'holders'])
+                
+                # Write data
+                for data in all_data:
+                    writer.writerow([
+                        data.get('timestamp', ''),
+                        data.get('axiom', {}).get('marketCapUSD', 0),
+                        data.get('axiom', {}).get('volumeUSD', 0),
+                        data.get('axiom', {}).get('numHolders', 0)
+                    ])
+            
+            output.seek(0)
+            return send_file(
+                BytesIO(output.getvalue().encode('utf-8')),
+                mimetype='text/csv',
+                as_attachment=True,
+                download_name='trading_data.csv'
+            )
+        return jsonify({"error": "No data available"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Add startup status tracking
-# Fix server_status initialization
 server_status = {
     "is_running": True,  # Set to True since threads start immediately
     "start_time": datetime.now().isoformat(),
     "is_configured": True  # Set to True since you have hardcoded config
 }
 
-# Remove the config check in status endpoint
 @app.route("/api/status")
 def status():
     return jsonify({
         "status": "active",
         "started_at": server_status["start_time"],
         "uptime_seconds": (datetime.now() - datetime.fromisoformat(server_status["start_time"])).total_seconds(),
-        "socket_connected": True
+        "socket_connected": True,
+        "data_points": len(data_storage.get_all())
     })
 
-# Remove the /start-backend route as it's no longer needed
 # -------------------------
 # MAIN
 # -------------------------
 if __name__ == "__main__":
     print("🚀 Starting Flask server with Socket.IO...")
     print("📊 Starting background data fetcher...")
+    print("💾 Using in-memory storage (Render free tier compatible)")
     
     # Start background threads
     threading.Thread(target=update_sol_price, daemon=True).start()
